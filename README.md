@@ -1,6 +1,6 @@
 # Dollar Since 1995
 
-An installable, offline-ready PWA for exploring U.S. inflation since January 1995 and converting dollar values between dates. The repository also produces the source Excel workbook.
+An installable, offline-ready PWA for exploring U.S. temporal inflation, spatial Cost of Living Adjustments, and converting dollar values between times/places. The repository also produces the source Excel workbook.
 
 ## Refresh the data
 
