@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+web/node_modules/
+web/dist/
+web/.vite/
+
+*.log
+.DS_Store
+Thumbs.db
+
+# TypeScript / Vite build artifacts
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
