@@ -793,6 +793,116 @@ h3 {
   line-height: 1.6;
 }
 
+.source-section {
+  margin: 0 0 64px;
+}
+
+.source-section > h2,
+.reliability-note h3 {
+  margin: 0 0 10px;
+  font-size: 30px;
+}
+
+.reliability-note h3 {
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.source-section-lede {
+  max-width: 780px;
+  margin: 0 0 28px;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+.acronym-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+}
+
+.acronym-list > div {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 14px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.acronym-list > div:nth-child(odd) {
+  border-right: 1px solid var(--line);
+}
+
+.acronym-list dt {
+  color: var(--teal);
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+}
+
+.acronym-list dd {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.bibliography-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: bib;
+  border-top: 1px solid var(--line);
+}
+
+.bibliography-list > li {
+  counter-increment: bib;
+  position: relative;
+  padding: 18px 8px 18px 42px;
+  display: grid;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bibliography-list > li::before {
+  content: counter(bib) ".";
+  position: absolute;
+  left: 4px;
+  top: 18px;
+  color: var(--copper);
+  font-family: "Fraunces", serif;
+  font-size: 18px;
+}
+
+.bibliography-list span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bibliography-list a {
+  color: var(--teal);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.bibliography-list small {
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.reliability-note {
+  max-width: 860px;
+  margin: 0 0 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.reliability-note p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
 .trust-note {
   margin: 0 0 60px;
   padding: 28px 32px;
@@ -1075,6 +1185,14 @@ footer {
 
   .formula-note p {
     grid-column: 1;
+  }
+
+  .acronym-list {
+    grid-template-columns: 1fr;
+  }
+
+  .acronym-list > div:nth-child(odd) {
+    border-right: 0;
   }
 
   .weights-list {

@@ -13,6 +13,7 @@ import {
   type WeightMap,
 } from "./data";
 import { TimeSeriesChart, type ChartLine } from "./TimeSeriesChart";
+import { ACRONYMS, BIBLIOGRAPHY, RELIABILITY_NOTES } from "./sourceDocs";
 import {
   CoeffMap,
   INDEX_LABEL,
@@ -787,19 +788,51 @@ function Sources({ data }: { data: InflationData }) {
       <div className="page-title">
         <p className="eyebrow">Trace every line</p>
         <h1>Sources & methods</h1>
-        <p>Every series links back to the publishing agency. Public data is not automatically perfect; these notes make its limits visible.</p>
+        <p>Every series links back to the publishing agency. Public data is not automatically perfect; these notes define the acronyms, list the URLs, and explain what each source can and cannot support.</p>
       </div>
-      <div className="trust-note">
-        <strong>Why these sources?</strong>
-        <p>BLS and BEA publish documented national statistics; FRED redistributes official series without altering them. Case-Shiller uses repeat home sales. The Economist, USPS and Farm Bureau lines are cross-checks—not substitutes for a broad price index.</p>
-      </div>
-      <div className="trust-note spatial-note">
-        <strong>Location coefficients use separate data vintages</strong>
-        <p>Metro purchasing-power comparisons use BEA Regional Price Parities (2024). County all-items estimates are experimental and approximately 2021-centered; ACS rents cover 2019–2023; HUD fair-market rents are FY2025. Place values are rent-scaled proxies. These cross-sectional coefficients are multiplied by—not substituted for—the January 1995-based time series.</p>
-      </div>
+
+      <section className="source-section" aria-labelledby="acronyms-heading">
+        <h2 id="acronyms-heading">Acronyms</h2>
+        <p className="source-section-lede">Terms used in the Map, Converter, and Sources tabs.</p>
+        <dl className="acronym-list">
+          {ACRONYMS.map((item) => (
+            <div key={item.term}>
+              <dt>{item.term}</dt>
+              <dd>{item.expansion}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      <section className="source-section" aria-labelledby="bibliography-heading">
+        <h2 id="bibliography-heading">Bibliography</h2>
+        <p className="source-section-lede">Direct links to the datasets and program pages used to build the workbook and coefficient maps.</p>
+        <ol className="bibliography-list">
+          {BIBLIOGRAPHY.map((entry) => (
+            <li key={entry.id}>
+              <strong>{entry.title}</strong>
+              <span>{entry.publisher}</span>
+              <a href={entry.url} target="_blank" rel="noreferrer">{entry.url}</a>
+              {entry.note && <small>{entry.note}</small>}
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="source-section" aria-labelledby="reliability-heading">
+        <h2 id="reliability-heading">Reliability and limitations</h2>
+        <p className="source-section-lede">Why each family of sources is used here, and where its claims stop.</p>
+        {RELIABILITY_NOTES.map((note) => (
+          <article className="reliability-note" key={note.title}>
+            <h3>{note.title}</h3>
+            <p>{note.body}</p>
+          </article>
+        ))}
+      </section>
+
       {[...grouped.entries()].map(([group, series]) => (
         <section className="source-group" key={group}>
-          <h2>{group[0].toUpperCase() + group.slice(1)}</h2>
+          <h2>{group[0].toUpperCase() + group.slice(1)} series</h2>
           {series.map((item: SeriesMeta) => (
             <details key={item.key}>
               <summary>
@@ -818,7 +851,7 @@ function Sources({ data }: { data: InflationData }) {
       ))}
       <div className="method-note">
         <h2>Data treatment</h2>
-        <p>{data.meta.method} A small number of missing monthly observations are interpolated; late-starting water and milk series are spliced to closely related BLS indexes. Details remain in the spreadsheet’s Data_Notes sheet.</p>
+        <p>{data.meta.method} A small number of missing monthly observations are interpolated; late-starting water and milk series are spliced to closely related Bureau of Labor Statistics (BLS) indexes. Spatial coefficients remain cross-sectional at their survey vintages and are multiplied by—not substituted for—these January 1995-based time series. Details remain in the spreadsheet’s Data_Notes sheet.</p>
       </div>
     </section>
   );
