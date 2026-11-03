@@ -25,9 +25,19 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,json,png,svg,woff2}"],
+        globPatterns: ["**/*.{js,css,html,png,svg,woff2}", "data/inflation.json"],
+        globIgnores: ["data/coeff-map/**/*"],
         navigateFallback: "index.html",
         runtimeCaching: [
+          {
+            urlPattern: /\/data\/coeff-map\/.*\.(?:json|geojson)$/,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "coefficient-map-data",
+              expiration: { maxEntries: 16, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
           {
             urlPattern: /\/data\/inflation\.json$/,
             handler: "StaleWhileRevalidate",

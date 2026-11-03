@@ -134,6 +134,40 @@ export function convertAmount(
   };
 }
 
+export interface LocationConversionResult extends ConversionResult {
+  timeFactor: number;
+  spatialFactor: number;
+}
+
+export function convertAmountWithLocation(
+  amount: number,
+  fromDate: string,
+  toDate: string,
+  months: string[],
+  values: Array<number | null>,
+  fromSpatialCoefficient: number,
+  toSpatialCoefficient: number,
+): LocationConversionResult {
+  if (
+    !Number.isFinite(fromSpatialCoefficient) ||
+    !Number.isFinite(toSpatialCoefficient) ||
+    fromSpatialCoefficient <= 0 ||
+    toSpatialCoefficient <= 0
+  ) {
+    throw new Error("Select locations with valid cost-of-living coefficients.");
+  }
+  const time = convertAmount(amount, fromDate, toDate, months, values);
+  const spatialFactor = toSpatialCoefficient / fromSpatialCoefficient;
+  const factor = time.factor * spatialFactor;
+  return {
+    ...time,
+    result: amount * factor,
+    factor,
+    timeFactor: time.factor,
+    spatialFactor,
+  };
+}
+
 export function annualizedRate(coefficient: number, fromMonth: string, toMonth: string): number {
   const start = new Date(`${fromMonth}-01T00:00:00`);
   const end = new Date(`${toMonth}-01T00:00:00`);

@@ -1,0 +1,245 @@
+{
+  "schemaVersion": "1.0.0",
+  "package": "coeff-map-react",
+  "description": "Spatial cross-sectional cost-of-living coefficients. Median metro = 1.00 at each index's survey year — NOT time-indexed to Jan 1995.",
+  "grains": {
+    "metro": {
+      "id": "CBSA code (5-digit)",
+      "count": 387,
+      "coverage": "nationwide MSAs",
+      "note": "No state or ZIP layer in this package."
+    },
+    "county": {
+      "id": "County FIPS (5-digit)",
+      "count": 3143,
+      "coverage": "nationwide (experimental OUSEA)",
+      "note": "8 legacy CT FIPS lack 2024 Census polygons."
+    },
+    "place": {
+      "id": "Census place GEOID (7-digit)",
+      "count": 1349,
+      "coverage": "focus regions only (LA, NYC metro, NJ, Denver/Boulder, North Alabama)"
+    }
+  },
+  "notIncluded": [
+    "state",
+    "ZIP",
+    "ZCTA"
+  ],
+  "denominators": {
+    "bea_rpp_metro_median": 93.537,
+    "acs_rent_metro_median_usd": 1091.0,
+    "hud_fmr_2br_metro_median_usd": 1252.9976692618739,
+    "acs_rent_county_median_usd": 853.0,
+    "hud_fmr_2br_county_median_usd": 976.0,
+    "us_average_bea_rpp": 100.0,
+    "note": "coef = value / denominator. BEA denom 93.537 (median metro all-items RPP). US-average RPP remains 100 (coef ≈ 1.069 when base is median metro)."
+  },
+  "indices": {
+    "bea_rpp": {
+      "label": "BEA RPP",
+      "year": "2024",
+      "unit": "index US=100",
+      "coef_denom": "median metro RPP 93.537",
+      "salary_scaling": "recommended"
+    },
+    "acs_rent": {
+      "label": "ACS Rent",
+      "year": "ACS 5-year 2023 (2019-2023)",
+      "unit": "USD median gross rent",
+      "coef_denom": "median metro ACS rent 1091.0",
+      "salary_scaling": "housing-only; not full COL"
+    },
+    "hud_fmr": {
+      "label": "HUD FMR 2BR",
+      "year": "FY2025",
+      "unit": "USD Fair Market Rent (2-bedroom)",
+      "coef_denom": "median metro HUD 2BR FMR 1253.0",
+      "salary_scaling": "housing-only; not full COL"
+    },
+    "avg_simple": {
+      "label": "Average (simple)",
+      "formula": "unweighted mean of available among {BEA RPP coef, ACS Rent coef, HUD FMR coef}",
+      "salary_scaling": "exploratory"
+    },
+    "avg_weighted": {
+      "label": "Average (weighted)",
+      "formula": "0.50 BEA + 0.25 ACS + 0.25 HUD, weights renormalized over available inputs",
+      "salary_scaling": "exploratory"
+    }
+  },
+  "skippedIndices": {
+    "big_mac": "Country-level only (The Economist); no reputable US-city series used — omitted",
+    "bls_cpi": "CPI-U metro indexes are time series with area-specific bases, NOT cross-sectional levels — omitted as spatial layer",
+    "mit_living_wage": "Bulk tabular data requires paid license; scraping prohibited — omitted",
+    "c2er_coli": "Paywalled / not freely redistributable in bulk — omitted"
+  },
+  "coverage": {
+    "metro_acs": 387,
+    "metro_hud": 382,
+    "metro_avg3": 382,
+    "county_acs": 3125,
+    "county_hud": 3143,
+    "place_acs": 1226,
+    "place_hud": 1226
+  },
+  "vintages": {
+    "bea_marpp_metro": "2024 (released Feb 19, 2026)",
+    "ousea_county_rpp": "March 2024 release; constructed from ~2021-centered public data",
+    "acs_rent": "ACS 5-year 2023 (2019–2023) B25064",
+    "acs_population_place": "ACS 5-year 2023 B01003",
+    "hud_fmr": "FY2025 Fair Market Rent, 2-bedroom",
+    "population_metro_county": "Census Vintage 2025 estimates",
+    "boundaries": "Census 2024 cartographic boundaries (simplified)"
+  },
+  "sources": {
+    "bea_marpp": "https://apps.bea.gov/regional/zip/MARPP.zip",
+    "ousea_county": "https://www.commerce.gov/sites/default/files/2024-03/0324-experimental-data-set.csv",
+    "ousea_paper": "https://www.commerce.gov/sites/default/files/2024-03/working-paper-estimating-county-level-regional-price-parities-from-public-data.pdf",
+    "hud_fmr": "https://www.huduser.gov/portal/datasets/fmr.html",
+    "acs": "Census ACS 5-year 2023"
+  },
+  "placeProxy": {
+    "w": 0.33,
+    "formula_all_items": "county_rpp*(1-w)+county_rpp*w*(place_rent/county_rent)",
+    "formula_housing": "county_rpp*(place_rent/county_rent)",
+    "n_places_by_region": {
+      "nyc": 672,
+      "la": 298,
+      "nj": 168,
+      "nal": 123,
+      "denver": 88
+    }
+  },
+  "focusRegions": {
+    "la": [
+      "06037",
+      "06059",
+      "06065",
+      "06071"
+    ],
+    "nyc": [
+      "34023",
+      "34025",
+      "34029",
+      "34035",
+      "36059",
+      "36103",
+      "34013",
+      "34019",
+      "34027",
+      "34037",
+      "34039",
+      "34003",
+      "34017",
+      "34031",
+      "36005",
+      "36047",
+      "36061",
+      "36079",
+      "36081",
+      "36085",
+      "36087",
+      "36119"
+    ],
+    "nj": [
+      "34001",
+      "34003",
+      "34005",
+      "34007",
+      "34009",
+      "34011",
+      "34013",
+      "34015",
+      "34017",
+      "34019",
+      "34021",
+      "34023",
+      "34025",
+      "34027",
+      "34029",
+      "34031",
+      "34033",
+      "34035",
+      "34037",
+      "34039",
+      "34041"
+    ],
+    "denver_boulder": [
+      "08013",
+      "08001",
+      "08005",
+      "08014",
+      "08019",
+      "08031",
+      "08035",
+      "08039",
+      "08047",
+      "08059",
+      "08093"
+    ],
+    "north_alabama": [
+      "01009",
+      "01019",
+      "01033",
+      "01043",
+      "01049",
+      "01055",
+      "01059",
+      "01071",
+      "01077",
+      "01079",
+      "01083",
+      "01089",
+      "01093",
+      "01095",
+      "01103",
+      "01133"
+    ]
+  },
+  "coefficientDefinition": "coefficient = value / median_across_metros(index). For BEA: RPP / 93.537. Salary: salary_B = salary_A * coef_B / coef_A. Prefer BEA for purchasing-power salary scaling; ACS/HUD are housing-only; averages are exploratory.",
+  "salaryScaling": {
+    "formula": "salary_B = salary_A * coef_B / coef_A",
+    "recommendedIndex": "bea",
+    "baselineExample": {
+      "place": "Huntsville, AL metro (CBSA 26620)",
+      "coef_bea": 0.995,
+      "rpp": 93.072
+    }
+  },
+  "caveats": [
+    "County RPPs are experimental (OUSEA), ~2021 vintage — not official BEA.",
+    "Place values are rent-scaled proxies, not official prices.",
+    "Averages (simple/weighted) are exploratory; do not substitute for BEA when scaling salaries.",
+    "Spatial coefficients are cross-sectional (median metro = 1.00 at survey year), NOT time-indexed to Jan 1995.",
+    "Year mix: metro BEA 2024; county ~2021; place rents ACS 2019–2023; HUD FY2025.",
+    "Puerto Rico is not in BEA/OUSEA RPP coverage.",
+    "Never mix place/county baseline with metro destination coefficients."
+  ],
+  "fieldMap": {
+    "coefFieldByIndex": {
+      "bea": "coef_bea",
+      "acs": "coef_acs",
+      "hud": "coef_hud",
+      "avg_simple": "coef_avg_simple",
+      "avg_weighted": "coef_avg_weighted",
+      "housing": "coef_housing",
+      "goods": "coef_goods",
+      "other_services": "coef_other_services",
+      "utilities": "coef_utilities"
+    },
+    "rawFieldByIndex": {
+      "bea": "rpp_all_items",
+      "acs": "acs_rent",
+      "hud": "hud_fmr_2br",
+      "housing": "rpp_housing",
+      "goods": "rpp_goods",
+      "other_services": "rpp_other_services",
+      "utilities": "rpp_utilities"
+    },
+    "metric": {
+      "coef": "Use the coef_* field (median metro = 1.00).",
+      "raw": "Use the raw index value (RPP, USD rent, etc.)."
+    }
+  }
+}

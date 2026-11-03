@@ -31,7 +31,7 @@ npm run build
 npm run preview
 ```
 
-The production bundle is written to `web/dist/`. It includes the data JSON, manifest, icons, and service worker; after one online visit, Explore and Converter work offline.
+The production bundle is written to `web/dist/`. It includes the inflation data, coefficient-map layers, manifest, icons, and service worker. The time series is precached; map layers are cached as they are visited so the large county and place files do not slow initial installation.
 
 ## Deploy to Cloudflare Pages
 
@@ -67,10 +67,12 @@ The PWA consumes `web/public/data/inflation.json`, generated from the same `SPEC
 EXP(sum(weight × LN(category coefficient)) / sum(weights))
 ```
 
-The Converter uses:
+The Converter combines a temporal coefficient with a BEA metro Regional Price Parity:
 
 ```text
-amount × (coefficient at destination month / coefficient at origin month)
+amount
+× (coefficient at destination month / coefficient at origin month)
+× (coefficient at destination metro / coefficient at origin metro)
 ```
 
-The app uses the observation for the selected month, or the nearest prior observation if that series has a gap.
+The app uses the observation for the selected month, or the nearest prior observation if that series has a gap. Metro purchasing-power coefficients are BEA 2024 data. Other Map-tab layers show their own vintage beside selected locations: county estimates are approximately 2021-centered, ACS rents cover 2019–2023, and HUD fair-market rents are FY2025. Spatial coefficients are cross-sectional and are not treated as January 1995 time indexes.

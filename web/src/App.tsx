@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   annualizedRate,
-  convertAmount,
+  convertAmountWithLocation,
   defaultWeights,
   formatMonth,
   geometricComposite,
@@ -13,8 +13,21 @@ import {
   type WeightMap,
 } from "./data";
 import { TimeSeriesChart, type ChartLine } from "./TimeSeriesChart";
+import {
+  CoeffMap,
+  INDEX_LABEL,
+  coefficientVintage,
+  formatLocationLabel,
+  getCoef,
+  useCoeffData,
+  useCoeffMeta,
+  type CoeffGrain,
+  type CoeffIndex,
+  type CoeffRecord,
+  type FocusRegion,
+} from "./coeffMap";
 
-type Tab = "explore" | "converter" | "weights" | "sources";
+type Tab = "explore" | "map" | "converter" | "weights" | "sources";
 
 const THEME_GROUPS = [
   {
@@ -117,7 +130,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>(() => {
     const hash = location.hash.replace("#", "");
-    return ["explore", "converter", "weights", "sources"].includes(hash) ? (hash as Tab) : "explore";
+    return ["explore", "map", "converter", "weights", "sources"].includes(hash) ? (hash as Tab) : "explore";
   });
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [updateApp, setUpdateApp] = useState<(() => Promise<void>) | null>(null);
@@ -185,7 +198,7 @@ export default function App() {
           <span>Dollar Since <strong>1995</strong></span>
         </button>
         <nav aria-label="Main navigation">
-          {(["explore", "converter", "weights", "sources"] as Tab[]).map((item) => (
+          {(["explore", "map", "converter", "weights", "sources"] as Tab[]).map((item) => (
             <button
               key={item}
               className={tab === item ? "active" : ""}
@@ -210,6 +223,7 @@ export default function App() {
         {tab === "explore" && (
           <Explore data={data} cpiWeights={cpi.weights} livedWeights={lived.weights} onConvert={() => selectTab("converter")} />
         )}
+        {tab === "map" && <MapTab />}
         {tab === "converter" && (
           <Converter data={data} cpiWeights={cpi.weights} livedWeights={lived.weights} />
         )}
@@ -342,6 +356,152 @@ function Metric({ label, value, note }: { label: string; value: string; note: st
   );
 }
 
+const MAP_INDEXES: Record<CoeffGrain, CoeffIndex[]> = {
+  metro: ["bea", "housing", "goods", "other_services", "utilities", "acs", "hud", "avg_weighted", "avg_simple"],
+  county: ["bea", "acs", "hud", "avg_weighted", "avg_simple"],
+  place: ["bea", "housing", "acs", "hud", "avg_weighted", "avg_simple"],
+};
+
+function MapTab() {
+  const [grain, setGrain] = useState<CoeffGrain>("metro");
+  const [index, setIndex] = useState<CoeffIndex>("bea");
+  const [focusRegion, setFocusRegion] = useState<FocusRegion>("all");
+  const [selected, setSelected] = useState<CoeffRecord | null>(null);
+  const { meta } = useCoeffMeta();
+  const vintage = coefficientVintage(meta, grain, index);
+  const selectedCoef = getCoef(selected, index);
+
+  const changeGrain = (next: CoeffGrain) => {
+    setGrain(next);
+    setIndex("bea");
+    setSelected(null);
+  };
+
+  return (
+    <section className="page map-page">
+      <div className="page-title map-title">
+        <p className="eyebrow">Where a dollar stretches</p>
+        <h1>Cost of living, mapped</h1>
+        <p>Compare regional price levels across the United States. The year beside every location is the source vintage—not a live price quote.</p>
+      </div>
+
+      <div className="map-controls" aria-label="Map controls">
+        <label>
+          Geography
+          <select value={grain} onChange={(event) => changeGrain(event.target.value as CoeffGrain)}>
+            <option value="metro">Metro areas</option>
+            <option value="county">Counties (experimental)</option>
+            <option value="place">Places (focus regions)</option>
+          </select>
+        </label>
+        <label>
+          Cost measure
+          <select value={index} onChange={(event) => { setIndex(event.target.value as CoeffIndex); setSelected(null); }}>
+            {MAP_INDEXES[grain].map((key) => <option key={key} value={key}>{INDEX_LABEL[key]}</option>)}
+          </select>
+        </label>
+        {grain !== "metro" && (
+          <label>
+            Region
+            <select value={focusRegion} onChange={(event) => { setFocusRegion(event.target.value as FocusRegion); setSelected(null); }}>
+              <option value="all">All available</option>
+              <option value="la">Los Angeles area</option>
+              <option value="nyc">New York City area</option>
+              <option value="nj">New Jersey</option>
+              <option value="denver_boulder">Denver / Boulder</option>
+              <option value="north_alabama">North Alabama</option>
+            </select>
+          </label>
+        )}
+        <div className="map-vintage">
+          <span>Data vintage</span>
+          <strong>{vintage}</strong>
+        </div>
+      </div>
+
+      <CoeffMap
+        grain={grain}
+        index={index}
+        focusRegion={focusRegion}
+        height="clamp(480px, 68vh, 760px)"
+        onSelect={(record) => setSelected(record)}
+        className="cost-map"
+        theme={{
+          background: "#eef4f1",
+          surface: "#ffffff",
+          text: "#0b2c33",
+          muted: "#536e72",
+          tealLow: "#167f77",
+          neutral: "#d8e2df",
+          copperHigh: "#c66b2c",
+          missing: "#cbd6d3",
+          stroke: "#f7faf8",
+          fontFamily: "'IBM Plex Sans', sans-serif",
+        }}
+      />
+
+      <div className="map-selection" aria-live="polite">
+        {selected ? (
+          <>
+            <span>Selected location</span>
+            <strong>{formatLocationLabel(selected, vintage)}</strong>
+            <p>{INDEX_LABEL[index]} coefficient: {selectedCoef == null ? "Unavailable" : `${selectedCoef.toFixed(3)}× median metro`}</p>
+          </>
+        ) : (
+          <p>Select a region on the map to inspect its coefficient. Scroll or pinch to zoom; drag to pan.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+interface LocationOption {
+  geoid: string;
+  label: string;
+  coefficient: number;
+}
+
+function LocationSelect({
+  id,
+  label,
+  value,
+  options,
+  loading,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: LocationOption[];
+  loading: boolean;
+  onChange: (geoid: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return options;
+    const matches = options.filter((option) => option.label.toLowerCase().includes(term));
+    const selected = options.find((option) => option.geoid === value);
+    return selected && !matches.some((option) => option.geoid === value) ? [selected, ...matches] : matches;
+  }, [options, query, value]);
+
+  return (
+    <label className="location-field" htmlFor={id}>
+      {label}
+      <input
+        type="search"
+        placeholder="Filter metros"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        aria-label={`Search ${label.toLowerCase()}`}
+      />
+      <select id={id} value={value} disabled={loading} onChange={(event) => onChange(event.target.value)}>
+        {filtered.map((option) => <option key={option.geoid} value={option.geoid}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function Converter({
   data,
   cpiWeights,
@@ -356,19 +516,52 @@ function Converter({
   const [fromDate, setFromDate] = useState(data.meta.birthDate);
   const [toDate, setToDate] = useState(latest);
   const [seriesKey, setSeriesKey] = useState("composite_lived");
+  const [fromLocation, setFromLocation] = useState("__median__");
+  const [toLocation, setToLocation] = useState("__median__");
   const [copied, setCopied] = useState(false);
+  const metro = useCoeffData("metro");
+  const locationVintage = coefficientVintage(metro.meta, "metro", "bea");
+  const locationOptions = useMemo<LocationOption[]>(() => {
+    const options: LocationOption[] = [{
+      geoid: "__median__",
+      label: `US median metro (${locationVintage})`,
+      coefficient: 1,
+    }];
+    for (const record of Object.values(metro.data ?? {})) {
+      const coefficient = getCoef(record, "bea");
+      if (coefficient != null && record.name) {
+        options.push({
+          geoid: record.geoid,
+          label: formatLocationLabel(record, locationVintage),
+          coefficient,
+        });
+      }
+    }
+    return options.sort((a, b) => a.geoid === "__median__" ? -1 : b.geoid === "__median__" ? 1 : a.label.localeCompare(b.label));
+  }, [metro.data, locationVintage]);
+  const fromPlace = locationOptions.find((option) => option.geoid === fromLocation);
+  const toPlace = locationOptions.find((option) => option.geoid === toLocation);
 
   const values = getCoefficientSeries(data, seriesKey, cpiWeights, livedWeights);
-  let conversion: ReturnType<typeof convertAmount> | null = null;
+  let conversion: ReturnType<typeof convertAmountWithLocation> | null = null;
   let conversionError = "";
   try {
-    conversion = convertAmount(Number(amount), fromDate, toDate, data.months, values);
+    if (!fromPlace || !toPlace) throw new Error("Select both an origin and destination location.");
+    conversion = convertAmountWithLocation(
+      Number(amount),
+      fromDate,
+      toDate,
+      data.months,
+      values,
+      fromPlace.coefficient,
+      toPlace.coefficient,
+    );
   } catch (reason) {
     conversionError = reason instanceof Error ? reason.message : "Conversion unavailable.";
   }
   const selected = data.series.find((series) => series.key === seriesKey);
   const copyText = conversion
-    ? `${currency(Number(amount))} in ${formatMonth(conversion.fromMonth)} ≈ ${currency(conversion.result)} in ${formatMonth(conversion.toMonth)}, using ${selected?.label}.`
+    ? `${currency(Number(amount))} in ${fromPlace?.label}, ${formatMonth(conversion.fromMonth)} ≈ ${currency(conversion.result)} in ${toPlace?.label}, ${formatMonth(conversion.toMonth)}. Time factor ${conversion.timeFactor.toFixed(3)}× using ${selected?.label}; location factor ${conversion.spatialFactor.toFixed(3)}× using BEA 2024 RPP.`
     : "";
 
   const copy = async () => {
@@ -397,7 +590,7 @@ function Converter({
       <div className="page-title">
         <p className="eyebrow">Purchasing power, translated</p>
         <h1>Dollar converter</h1>
-        <p>Compare what the same amount buys at two moments in time.</p>
+        <p>Compare what the same amount buys across both time and place.</p>
       </div>
 
       <div className="preset-row" aria-label="Date presets">
@@ -423,8 +616,10 @@ function Converter({
               onClick={() => {
                 setFromDate(toDate);
                 setToDate(fromDate);
+                setFromLocation(toLocation);
+                setToLocation(fromLocation);
               }}
-              aria-label="Swap dates"
+              aria-label="Swap dates and locations"
             >
               ⇄
             </button>
@@ -432,6 +627,24 @@ function Converter({
               To date
               <input type="date" min={data.meta.birthDate} max={latest} value={toDate} onChange={(e) => setToDate(e.target.value)} />
             </label>
+          </div>
+          <div className="location-pair">
+            <LocationSelect
+              id="from-location"
+              label="From location"
+              value={fromLocation}
+              options={locationOptions}
+              loading={metro.loading}
+              onChange={setFromLocation}
+            />
+            <LocationSelect
+              id="to-location"
+              label="To location"
+              value={toLocation}
+              options={locationOptions}
+              loading={metro.loading}
+              onChange={setToLocation}
+            />
           </div>
           <label>
             Inflation measure
@@ -445,7 +658,10 @@ function Converter({
               ))}
             </select>
           </label>
-          <p className="field-note">Dates use the latest available monthly observation on or before the selected day.</p>
+          <p className="field-note">
+            Dates use the latest monthly observation on or before the selected day. Locations use BEA metro RPP ({locationVintage}).
+            {metro.error && ` Location data error: ${metro.error}`}
+          </p>
         </form>
 
         <div className="conversion-result" aria-live="polite">
@@ -454,8 +670,11 @@ function Converter({
               <span>{currency(Number(amount) || 0)} becomes</span>
               <strong>{currency(conversion.result)}</strong>
               <p>
-                {formatMonth(conversion.fromMonth)} → {formatMonth(conversion.toMonth)}
-                <br />Factor: {conversion.factor.toFixed(3)}× using {selected?.label}
+                {fromPlace?.label}<br />
+                {formatMonth(conversion.fromMonth)} → {formatMonth(conversion.toMonth)}<br />
+                {toPlace?.label}<br />
+                Combined factor: {conversion.factor.toFixed(3)}×
+                <br />Time {conversion.timeFactor.toFixed(3)}× · Location {conversion.spatialFactor.toFixed(3)}×
               </p>
               <button className="copy-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy result"}</button>
             </>
@@ -482,8 +701,8 @@ function Converter({
 
       <aside className="formula-note">
         <strong>How it works</strong>
-        <code>amount × (coefficient at destination ÷ coefficient at origin)</code>
-        <p>The converter uses the same monthly series shown in Explore. It does not invent daily precision.</p>
+        <code>amount × (time-to ÷ time-from) × (location-to ÷ location-from)</code>
+        <p>Time uses {selected?.label}; location uses BEA {locationVintage} Regional Price Parities. It does not invent daily or current local precision.</p>
       </aside>
     </section>
   );
@@ -573,6 +792,10 @@ function Sources({ data }: { data: InflationData }) {
       <div className="trust-note">
         <strong>Why these sources?</strong>
         <p>BLS and BEA publish documented national statistics; FRED redistributes official series without altering them. Case-Shiller uses repeat home sales. The Economist, USPS and Farm Bureau lines are cross-checks—not substitutes for a broad price index.</p>
+      </div>
+      <div className="trust-note spatial-note">
+        <strong>Location coefficients use separate data vintages</strong>
+        <p>Metro purchasing-power comparisons use BEA Regional Price Parities (2024). County all-items estimates are experimental and approximately 2021-centered; ACS rents cover 2019–2023; HUD fair-market rents are FY2025. Place values are rent-scaled proxies. These cross-sectional coefficients are multiplied by—not substituted for—the January 1995-based time series.</p>
       </div>
       {[...grouped.entries()].map(([group, series]) => (
         <section className="source-group" key={group}>

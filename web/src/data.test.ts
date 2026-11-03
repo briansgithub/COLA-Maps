@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { convertAmount, geometricComposite, type InflationData } from "./data";
+import {
+  convertAmount,
+  convertAmountWithLocation,
+  geometricComposite,
+  type InflationData,
+} from "./data";
 
 const data: InflationData = {
   meta: {
@@ -45,5 +50,38 @@ describe("convertAmount", () => {
     const result = convertAmount(10, "1995-02-10", "1995-03-01", data.months, data.coefficients.gap);
     expect(result.fromMonth).toBe("1995-01");
     expect(result.result).toBe(40);
+  });
+});
+
+describe("convertAmountWithLocation", () => {
+  it("matches the time-only conversion when both locations are the same", () => {
+    const result = convertAmountWithLocation(
+      10,
+      "1995-01-01",
+      "1995-03-01",
+      data.months,
+      data.coefficients.a,
+      1.2,
+      1.2,
+    );
+    expect(result.result).toBe(40);
+    expect(result.timeFactor).toBe(4);
+    expect(result.spatialFactor).toBe(1);
+  });
+
+  it("multiplies the time factor by the destination-to-origin location ratio", () => {
+    const result = convertAmountWithLocation(
+      100,
+      "1995-01-01",
+      "1995-02-01",
+      data.months,
+      data.coefficients.a,
+      0.8,
+      1.2,
+    );
+    expect(result.timeFactor).toBe(2);
+    expect(result.spatialFactor).toBeCloseTo(1.5);
+    expect(result.factor).toBeCloseTo(3);
+    expect(result.result).toBeCloseTo(300);
   });
 });

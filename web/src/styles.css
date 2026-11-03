@@ -440,6 +440,79 @@ h3 {
   line-height: 1.6;
 }
 
+.map-page {
+  max-width: 1320px;
+}
+
+.map-title {
+  margin-bottom: 34px;
+}
+
+.map-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) auto;
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 18px;
+  padding-block: 18px;
+  border-block: 1px solid var(--line);
+}
+
+.map-controls label {
+  display: grid;
+  gap: 7px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.map-controls select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.map-vintage {
+  display: grid;
+  gap: 4px;
+  min-width: 130px;
+  padding: 0 4px 7px;
+}
+
+.map-vintage span,
+.map-selection span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cost-map {
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.map-selection {
+  min-height: 82px;
+  padding: 20px 4px;
+  display: grid;
+  gap: 3px;
+  border-bottom: 1px solid var(--line);
+}
+
+.map-selection strong {
+  font-family: "Fraunces", serif;
+  font-size: 24px;
+}
+
+.map-selection p {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
 .preset-row {
   display: flex;
   gap: 8px;
@@ -525,6 +598,30 @@ h3 {
   grid-template-columns: 1fr auto 1fr;
   gap: 12px;
   align-items: end;
+}
+
+.location-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.location-field {
+  min-width: 0;
+}
+
+.location-field input[type="search"] {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  padding: 6px 9px;
+  background: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+}
+
+.location-field select {
+  min-width: 0;
+  text-overflow: ellipsis;
+  font-size: 13px;
 }
 
 .swap-button {
@@ -955,6 +1052,10 @@ footer {
     padding: 10px 6px;
   }
 
+  .map-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .converter-layout {
     grid-template-columns: 1fr;
   }
@@ -962,6 +1063,10 @@ footer {
   .converter-form {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .location-pair {
+    grid-template-columns: 1fr;
   }
 
   .formula-note {
@@ -1023,6 +1128,11 @@ footer {
     font-size: 29px;
   }
 
+  .preset-row {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
   .chart-feature > div:last-child {
     margin-inline: -8px;
     padding: 10px 0;
@@ -1031,6 +1141,14 @@ footer {
   .date-pair {
     grid-template-columns: 1fr 38px 1fr;
     gap: 6px;
+  }
+
+  .map-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .map-vintage {
+    padding-left: 0;
   }
 
   .converter-form {
