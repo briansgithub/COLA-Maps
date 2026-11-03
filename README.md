@@ -2,6 +2,8 @@
 
 An installable, offline-ready PWA for exploring U.S. temporal inflation, spatial Cost of Living Adjustments, and converting dollar values between times/places. The repository also produces the source Excel workbook.
 
+**Live app:** [bellsworth.dev/COLA-Maps/](https://bellsworth.dev/COLA-Maps/)
+
 ## Refresh the data
 
 From the project root:
@@ -33,27 +35,19 @@ npm run preview
 
 The production bundle is written to `web/dist/`. It includes the inflation data, coefficient-map layers, manifest, icons, and service worker. The time series is precached; map layers are cached as they are visited so the large county and place files do not slow initial installation.
 
-## Deploy to Cloudflare Pages
+## Deploy to GitHub Pages
 
-No backend or API keys are required.
+No backend or API keys are required. Pushes to `main` run `.github/workflows/pages.yml`, which installs the locked dependencies, runs the tests, builds `web/dist/`, and deploys the static PWA to:
 
-1. Refresh and verify the data as shown above.
-2. Run `npm run build` from `web/`.
-3. In the Cloudflare dashboard, open **Workers & Pages → Create → Pages → Upload assets**.
-4. Name the project (for example `dollar-since-1995`) and upload the entire `web/dist/` folder.
-5. Open the generated HTTPS URL once on each device so the app and dataset are cached.
+```text
+https://bellsworth.dev/COLA-Maps/
+```
 
-For a Git-connected Cloudflare Pages project, use:
-
-- Root directory: `web`
-- Build command: `npm run build`
-- Build output directory: `dist`
-
-The Python data refresh still runs locally; rebuild and redeploy `dist/` whenever the data changes.
+The workflow rebuilds from the committed JSON data. The Python data refresh still runs locally; refresh and verify the data, commit the regenerated files, and push to deploy a new data vintage.
 
 ## Install on a device
 
-- **Android / Chrome:** open the deployed HTTPS site, then choose **Install app** (or Chrome menu → **Add to Home screen**).
+- **Android / Chrome:** open [bellsworth.dev/COLA-Maps/](https://bellsworth.dev/COLA-Maps/), then choose **Install app** (or Chrome menu → **Add to Home screen**).
 - **iPhone / iPad:** open in Safari, tap **Share**, then **Add to Home Screen**.
 - **Desktop Chrome / Edge:** click **Install app** in the site header or the browser address bar.
 
