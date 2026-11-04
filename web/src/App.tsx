@@ -6,7 +6,11 @@ import {
   formatMonth,
   geometricComposite,
   getCoefficientSeries,
+  getLevelSeries,
   loadData,
+  monthKey,
+  rebaseSeries,
+  seriesRange,
   type CompositeKind,
   type InflationData,
   type SeriesMeta,
@@ -48,7 +52,7 @@ const THEME_GROUPS = [
   },
   {
     title: "Actual shelf prices",
-    description: "Observed dollar prices, normalized to January 1995, rather than broad category indexes.",
+    description: "Observed dollar prices, normalized to your selected anchor, rather than broad category indexes.",
     keys: ["cpi", "eggs", "milk", "bread", "ground_beef", "chicken", "bananas", "elec_kwh", "gas_gallon"],
   },
   {
@@ -64,10 +68,10 @@ const THEME_GROUPS = [
 ];
 
 const SERIES_COLORS: Record<string, string> = {
-  cpi: "#183f53",
-  pce: "#6e8390",
-  composite_cpi: "#d07a36",
-  composite_lived: "#167f77",
+  cpi: "#0f172a",
+  pce: "#64748b",
+  composite_cpi: "#c2410c",
+  composite_lived: "#2563eb",
 };
 
 function currency(value: number): string {
@@ -102,6 +106,26 @@ function useWeights(data: InflationData | null, kind: CompositeKind) {
   return { weights, save, reset };
 }
 
+function useAnchor(data: InflationData | null) {
+  const [anchorDate, setAnchorDateState] = useState("1995-01-20");
+  useEffect(() => {
+    if (!data) return;
+    const saved = localStorage.getItem("inflation-anchor-v1");
+    const candidate = saved || data.meta.defaultAnchorDate || data.meta.birthDate;
+    const month = monthKey(candidate);
+    setAnchorDateState(
+      month >= data.meta.firstMonth && month <= data.meta.latestMonth
+        ? candidate
+        : data.meta.defaultAnchorDate,
+    );
+  }, [data]);
+  const setAnchorDate = (next: string) => {
+    setAnchorDateState(next);
+    localStorage.setItem("inflation-anchor-v1", next);
+  };
+  return { anchorDate, setAnchorDate };
+}
+
 function seriesLabel(data: InflationData, key: string): string {
   return data.series.find((series) => series.key === key)?.label ?? key;
 }
@@ -111,14 +135,17 @@ function makeLines(
   keys: string[],
   cpiWeights: WeightMap,
   livedWeights: WeightMap,
+  anchorDate: string,
 ): ChartLine[] {
-  return keys.map((key) => ({
-    key,
-    label: seriesLabel(data, key),
-    values: getCoefficientSeries(data, key, cpiWeights, livedWeights),
-    color: SERIES_COLORS[key],
-    width: key === "cpi" ? 3 : undefined,
-  }));
+  return keys
+    .map((key) => ({
+      key,
+      label: seriesLabel(data, key),
+      values: getCoefficientSeries(data, key, cpiWeights, livedWeights, anchorDate),
+      color: SERIES_COLORS[key],
+      width: key === "cpi" ? 3 : undefined,
+    }))
+    .filter((line) => line.values.some((value) => value !== null));
 }
 
 interface InstallPromptEvent extends Event {
@@ -137,6 +164,7 @@ export default function App() {
   const [updateApp, setUpdateApp] = useState<(() => Promise<void>) | null>(null);
   const cpi = useWeights(data, "composite_cpi");
   const lived = useWeights(data, "composite_lived");
+  const anchor = useAnchor(data);
 
   useEffect(() => {
     loadData().then(setData).catch((reason: unknown) => {
@@ -186,7 +214,7 @@ export default function App() {
     return (
       <main className="state-page loading">
         <div className="loading-mark">$</div>
-        <p>Loading thirty-one years of prices…</p>
+        <p>Loading more than a century of prices…</p>
       </main>
     );
   }
@@ -222,7 +250,14 @@ export default function App() {
 
       <main>
         {tab === "explore" && (
-          <Explore data={data} cpiWeights={cpi.weights} livedWeights={lived.weights} onConvert={() => selectTab("converter")} />
+          <Explore
+            data={data}
+            cpiWeights={cpi.weights}
+            livedWeights={lived.weights}
+            anchorDate={anchor.anchorDate}
+            onAnchorChange={anchor.setAnchorDate}
+            onConvert={() => selectTab("converter")}
+          />
         )}
         {tab === "map" && <MapTab />}
         {tab === "converter" && (
@@ -243,8 +278,7 @@ export default function App() {
       </main>
 
       <footer>
-        <p>Public economic data, translated into everyday purchasing power.</p>
-        <p>Data through {formatMonth(data.meta.latestMonth)} · Retrieved {data.meta.retrieved}</p>
+        <p>Through {formatMonth(data.meta.latestMonth)} · Retrieved {data.meta.retrieved}</p>
       </footer>
     </>
   );
@@ -254,94 +288,124 @@ function Explore({
   data,
   cpiWeights,
   livedWeights,
+  anchorDate,
+  onAnchorChange,
   onConvert,
 }: {
   data: InflationData;
   cpiWeights: WeightMap;
   livedWeights: WeightMap;
+  anchorDate: string;
+  onAnchorChange: (date: string) => void;
   onConvert: () => void;
 }) {
   const latestIndex = data.months.length - 1;
-  const official = data.coefficients.cpi[latestIndex] ?? 0;
-  const pce = data.coefficients.pce[latestIndex] ?? 0;
-  const cpiComposite = geometricComposite(data, cpiWeights);
-  const livedComposite = geometricComposite(data, livedWeights);
-  const livedLatest = livedComposite[latestIndex] ?? 0;
-  const rate = annualizedRate(livedLatest, data.meta.baseMonth, data.meta.latestMonth);
+  const officialSeries = getCoefficientSeries(data, "cpi", cpiWeights, livedWeights, anchorDate);
+  const pceSeries = getCoefficientSeries(data, "pce", cpiWeights, livedWeights, anchorDate);
+  const cpiComposite = rebaseSeries(data.months, geometricComposite(data, cpiWeights), anchorDate);
+  const livedComposite = rebaseSeries(data.months, geometricComposite(data, livedWeights), anchorDate);
+  const official = officialSeries[latestIndex];
+  const pce = pceSeries[latestIndex];
+  const cpiLatest = cpiComposite[latestIndex];
+  const livedLatest = livedComposite[latestIndex];
+  const anchorMonth = monthKey(anchorDate);
+  const anchorLabel = formatMonth(anchorMonth);
+  const rate = livedLatest == null ? null : annualizedRate(livedLatest, anchorMonth, data.meta.latestMonth);
+  const mainLines = [
+    { key: "cpi", label: "Official CPI-U", values: officialSeries, color: SERIES_COLORS.cpi },
+    { key: "pce", label: "PCE price index", values: pceSeries, color: SERIES_COLORS.pce },
+    { key: "composite_cpi", label: "CPI-style basket", values: cpiComposite, color: SERIES_COLORS.composite_cpi },
+    { key: "composite_lived", label: "Lived-experience basket", values: livedComposite, color: SERIES_COLORS.composite_lived, width: 3 },
+  ];
+  const availableMainLines = mainLines.filter((line) => line.values.some((value) => value !== null));
+  const unavailableMain = mainLines.filter((line) => !line.values.some((value) => value !== null));
+  const coefficientText = (value: number | null) => value == null ? "Unavailable" : `${value.toFixed(2)}×`;
 
   return (
     <>
       <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow">Your dollar, traced from January 1995</p>
           <h1>Dollar Since 1995</h1>
           <p className="hero-lede">
-            Official inflation says one 1995 dollar now costs <strong>{official.toFixed(2)}×</strong> to replace.
-            A basket that uses actual home prices says <strong>{livedLatest.toFixed(2)}×</strong>.
+            From {anchorLabel}: CPI <strong>{coefficientText(official)}</strong>
+            {" · "}lived basket <strong>{coefficientText(livedLatest)}</strong>
+            {rate != null && <> · {(rate * 100).toFixed(2)}%/yr</>}
+            {" · "}through {formatMonth(data.meta.latestMonth)}
           </p>
-          <div className="hero-actions">
-            <button className="primary" onClick={onConvert}>Convert a dollar value</button>
-            <span>Updated through {formatMonth(data.meta.latestMonth)}</span>
-          </div>
         </div>
-        <div className="hero-number" aria-label={`Lived experience coefficient ${livedLatest.toFixed(2)} times`}>
-          <span className="number-label">Lived-experience coefficient</span>
-          <strong>{livedLatest.toFixed(2)}<small>×</small></strong>
-          <span>{(rate * 100).toFixed(2)}% annualized since birth</span>
+        <div className="hero-aside">
+          <div className="hero-number" aria-label={`Lived experience coefficient ${coefficientText(livedLatest)}`}>
+            <span className="number-label">Lived coefficient</span>
+            <strong>{livedLatest == null ? "—" : livedLatest.toFixed(2)}{livedLatest != null && <small>×</small>}</strong>
+          </div>
+          <button className="primary" onClick={onConvert}>Convert</button>
         </div>
       </section>
 
       <section className="metric-rail" aria-label="Latest inflation measures">
-        <Metric label="Official CPI-U" value={`${official.toFixed(2)}×`} note={`${currency(1 / official)} purchasing power`} />
-        <Metric label="PCE price index" value={`${pce.toFixed(2)}×`} note="Federal Reserve preference" />
-        <Metric label="CPI-style basket" value={`${(cpiComposite[latestIndex] ?? 0).toFixed(2)}×`} note="Validates the method" />
-        <Metric label="$1.00 then costs" value={currency(livedLatest)} note="Using your lived weights" />
+        <Metric label="Official CPI-U" value={coefficientText(official)} note={official == null ? `Begins ${formatMonth(seriesRange(data.months, data.levels.cpi)!.firstMonth)}` : `${currency(1 / official)} purchasing power`} />
+        <Metric label="PCE" value={coefficientText(pce)} note={pce == null ? "Not available at anchor" : "Fed preference"} />
+        <Metric label="CPI-style basket" value={coefficientText(cpiLatest)} note={cpiLatest == null ? "Not available at anchor" : "Method check"} />
+        <Metric label="$1 then →" value={livedLatest == null ? "Unavailable" : currency(livedLatest)} note="Lived weights" />
       </section>
 
       <section className="chart-feature">
         <div className="section-heading">
-          <div>
-            <p className="eyebrow">Four views of the same dollar</p>
-            <h2>What changed since your birth?</h2>
+          <h2>Anchor comparison</h2>
+          <div className="anchor-control">
+            <label>
+              Anchor
+              <input
+                type="date"
+                min={`${data.meta.firstMonth}-01`}
+                max={`${data.meta.latestMonth}-28`}
+                value={anchorDate}
+                onChange={(event) => onAnchorChange(event.target.value)}
+              />
+            </label>
+            <small>{anchorLabel} = 1.00</small>
           </div>
-          <p>Drag the range below the chart. Hold Shift and scroll to zoom.</p>
         </div>
+        {unavailableMain.length > 0 && (
+          <p className="chart-availability">
+            Not shown: {unavailableMain.map((line) => line.label).join(", ")}.
+          </p>
+        )}
         <TimeSeriesChart
           months={data.months}
           zoom
-          height={480}
-          lines={[
-            { key: "cpi", label: "Official CPI-U", values: data.coefficients.cpi, color: SERIES_COLORS.cpi },
-            { key: "pce", label: "PCE price index", values: data.coefficients.pce, color: SERIES_COLORS.pce },
-            { key: "composite_cpi", label: "CPI-style basket", values: cpiComposite, color: SERIES_COLORS.composite_cpi },
-            { key: "composite_lived", label: "Lived-experience basket", values: livedComposite, color: SERIES_COLORS.composite_lived, width: 3 },
-          ]}
+          height={340}
+          lines={availableMainLines}
+          markers={[{ month: anchorMonth, label: "Anchor" }]}
         />
       </section>
 
-      <section className="story-intro">
-        <p className="eyebrow">Where the headline breaks apart</p>
-        <h2>Inflation is not one line.</h2>
-        <p>Housing, insurance, utilities and food moved at different speeds. These views show what the average hides.</p>
-      </section>
-
       <div className="theme-charts">
-        {THEME_GROUPS.map((group, index) => (
-          <section className="theme-section" key={group.title}>
-            <div className="theme-copy">
-              <span className="section-number">{String(index + 1).padStart(2, "0")}</span>
-              <h3>{group.title}</h3>
-              <p>{group.description}</p>
-            </div>
-            <div className="theme-chart">
-              <TimeSeriesChart
-                months={data.months}
-                lines={makeLines(data, group.keys, cpiWeights, livedWeights)}
-                height={390}
-              />
-            </div>
-          </section>
-        ))}
+        <div className="theme-charts-head">
+          <h2>Category breakdowns</h2>
+          <p>Same dollar, split by spending group.</p>
+        </div>
+        {THEME_GROUPS.map((group, index) => {
+          const lines = makeLines(data, group.keys, cpiWeights, livedWeights, anchorDate);
+          const available = new Set(lines.map((line) => line.key));
+          const omitted = group.keys.filter((key) => !available.has(key));
+          return (
+            <section className="theme-section" key={group.title}>
+              <div className="theme-copy">
+                <h3><span className="section-number">{String(index + 1).padStart(2, "0")}</span> {group.title}</h3>
+                <p>{group.description}</p>
+                {omitted.length > 0 && (
+                  <small className="theme-availability">
+                    Missing at {anchorLabel}: {omitted.map((key) => seriesLabel(data, key)).join(", ")}.
+                  </small>
+                )}
+              </div>
+              <div className="theme-chart">
+                <TimeSeriesChart months={data.months} lines={lines} height={280} />
+              </div>
+            </section>
+          );
+        })}
       </div>
     </>
   );
@@ -381,9 +445,8 @@ function MapTab() {
   return (
     <section className="page map-page">
       <div className="page-title map-title">
-        <p className="eyebrow">Where a dollar stretches</p>
-        <h1>Cost of living, mapped</h1>
-        <p>Compare regional price levels across the United States. The year beside every location is the source vintage—not a live price quote.</p>
+        <h1>Cost map</h1>
+        <p>Regional price levels vs US median. Years are source vintages, not live quotes.</p>
       </div>
 
       <div className="map-controls" aria-label="Map controls">
@@ -415,7 +478,7 @@ function MapTab() {
           </label>
         )}
         <div className="map-vintage">
-          <span>Data vintage</span>
+          <span>Vintage</span>
           <strong>{vintage}</strong>
         </div>
       </div>
@@ -424,32 +487,31 @@ function MapTab() {
         grain={grain}
         index={index}
         focusRegion={focusRegion}
-        height="clamp(480px, 68vh, 760px)"
+        height="clamp(360px, 55vh, 560px)"
         onSelect={(record) => setSelected(record)}
         className="cost-map"
         theme={{
-          background: "#eef4f1",
+          background: "#f1f5f9",
           surface: "#ffffff",
-          text: "#0b2c33",
-          muted: "#536e72",
-          tealLow: "#167f77",
-          neutral: "#d8e2df",
-          copperHigh: "#c66b2c",
-          missing: "#cbd6d3",
-          stroke: "#f7faf8",
-          fontFamily: "'IBM Plex Sans', sans-serif",
+          text: "#0f172a",
+          muted: "#64748b",
+          tealLow: "#0284c7",
+          neutral: "#cbd5e1",
+          copperHigh: "#c2410c",
+          missing: "#e2e8f0",
+          stroke: "#f8fafc",
+          fontFamily: "'IBM Plex Sans', ui-sans-serif, sans-serif",
         }}
       />
 
       <div className="map-selection" aria-live="polite">
         {selected ? (
           <>
-            <span>Selected location</span>
             <strong>{formatLocationLabel(selected, vintage)}</strong>
-            <p>{INDEX_LABEL[index]} coefficient: {selectedCoef == null ? "Unavailable" : `${selectedCoef.toFixed(3)}× median metro`}</p>
+            <p>{INDEX_LABEL[index]}: {selectedCoef == null ? "Unavailable" : `${selectedCoef.toFixed(3)}× median metro`}</p>
           </>
         ) : (
-          <p>Select a region on the map to inspect its coefficient. Scroll or pinch to zoom; drag to pan.</p>
+          <p>Click a region · scroll to zoom · drag to pan</p>
         )}
       </div>
     </section>
@@ -543,7 +605,17 @@ function Converter({
   const fromPlace = locationOptions.find((option) => option.geoid === fromLocation);
   const toPlace = locationOptions.find((option) => option.geoid === toLocation);
 
-  const values = getCoefficientSeries(data, seriesKey, cpiWeights, livedWeights);
+  const values = getLevelSeries(data, seriesKey, cpiWeights, livedWeights);
+  const range = seriesRange(data.months, values);
+  const seriesFirstDate = range ? `${range.firstMonth}-01` : `${data.meta.firstMonth}-01`;
+  const seriesLastDate = range ? `${range.lastMonth}-28` : `${data.meta.latestMonth}-28`;
+  useEffect(() => {
+    if (!range) return;
+    if (monthKey(fromDate) < range.firstMonth) setFromDate(seriesFirstDate);
+    if (monthKey(fromDate) > range.lastMonth) setFromDate(seriesLastDate);
+    if (monthKey(toDate) < range.firstMonth) setToDate(seriesFirstDate);
+    if (monthKey(toDate) > range.lastMonth) setToDate(seriesLastDate);
+  }, [fromDate, range, seriesFirstDate, seriesLastDate, toDate]);
   let conversion: ReturnType<typeof convertAmountWithLocation> | null = null;
   let conversionError = "";
   try {
@@ -574,24 +646,23 @@ function Converter({
   const presets = (type: "birth" | "reverse" | "year") => {
     if (type === "birth") {
       setFromDate(data.meta.birthDate);
-      setToDate(latest);
+      setToDate(seriesLastDate);
     } else if (type === "reverse") {
-      setFromDate(latest);
+      setFromDate(seriesLastDate);
       setToDate(data.meta.birthDate);
     } else {
-      const d = new Date(`${latest}T00:00:00`);
+      const d = new Date(`${seriesLastDate}T00:00:00`);
       d.setUTCFullYear(d.getUTCFullYear() - 1);
       setFromDate(d.toISOString().slice(0, 10));
-      setToDate(latest);
+      setToDate(seriesLastDate);
     }
   };
 
   return (
     <section className="page converter-page">
       <div className="page-title">
-        <p className="eyebrow">Purchasing power, translated</p>
-        <h1>Dollar converter</h1>
-        <p>Compare what the same amount buys across both time and place.</p>
+        <h1>Converter</h1>
+        <p>Translate an amount across time and metro location.</p>
       </div>
 
       <div className="preset-row" aria-label="Date presets">
@@ -608,8 +679,8 @@ function Converter({
           </label>
           <div className="date-pair">
             <label>
-              From date
-              <input type="date" min={data.meta.birthDate} max={latest} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              From
+              <input type="date" min={seriesFirstDate} max={seriesLastDate} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
             </label>
             <button
               className="swap-button"
@@ -625,14 +696,14 @@ function Converter({
               ⇄
             </button>
             <label>
-              To date
-              <input type="date" min={data.meta.birthDate} max={latest} value={toDate} onChange={(e) => setToDate(e.target.value)} />
+              To
+              <input type="date" min={seriesFirstDate} max={seriesLastDate} value={toDate} onChange={(e) => setToDate(e.target.value)} />
             </label>
           </div>
           <div className="location-pair">
             <LocationSelect
               id="from-location"
-              label="From location"
+              label="From metro"
               value={fromLocation}
               options={locationOptions}
               loading={metro.loading}
@@ -640,7 +711,7 @@ function Converter({
             />
             <LocationSelect
               id="to-location"
-              label="To location"
+              label="To metro"
               value={toLocation}
               options={locationOptions}
               loading={metro.loading}
@@ -648,7 +719,7 @@ function Converter({
             />
           </div>
           <label>
-            Inflation measure
+            Measure
             <select value={seriesKey} onChange={(e) => setSeriesKey(e.target.value)}>
               {(["composite", "headline", "component", "price", "unorthodox", "context"] as const).map((group) => (
                 <optgroup key={group} label={group[0].toUpperCase() + group.slice(1)}>
@@ -660,24 +731,26 @@ function Converter({
             </select>
           </label>
           <p className="field-note">
-            Dates use the latest monthly observation on or before the selected day. Locations use BEA metro RPP ({locationVintage}).
-            {metro.error && ` Location data error: ${metro.error}`}
+            Month-end snap · BEA metro RPP ({locationVintage})
+            {metro.error && ` · Location error: ${metro.error}`}
           </p>
         </form>
 
         <div className="conversion-result" aria-live="polite">
           {conversion && !conversionError ? (
             <>
-              <span>{currency(Number(amount) || 0)} becomes</span>
+              <span>{currency(Number(amount) || 0)} →</span>
               <strong>{currency(conversion.result)}</strong>
               <p>
-                {fromPlace?.label}<br />
-                {formatMonth(conversion.fromMonth)} → {formatMonth(conversion.toMonth)}<br />
-                {toPlace?.label}<br />
-                Combined factor: {conversion.factor.toFixed(3)}×
-                <br />Time {conversion.timeFactor.toFixed(3)}× · Location {conversion.spatialFactor.toFixed(3)}×
+                {fromPlace?.label} · {formatMonth(conversion.fromMonth)}
+                <br />
+                {toPlace?.label} · {formatMonth(conversion.toMonth)}
+                <br />
+                {conversion.factor.toFixed(3)}× total
+                {" · "}time {conversion.timeFactor.toFixed(3)}×
+                {" · "}place {conversion.spatialFactor.toFixed(3)}×
               </p>
-              <button className="copy-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy result"}</button>
+              <button className="copy-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
             </>
           ) : (
             <p className="error-message">{conversionError}</p>
@@ -690,8 +763,13 @@ function Converter({
           <TimeSeriesChart
             months={data.months}
             compact
-            height={170}
-            lines={[{ key: seriesKey, label: selected?.label ?? seriesKey, values, color: SERIES_COLORS[seriesKey] ?? "#167f77" }]}
+            height={140}
+            lines={[{
+              key: seriesKey,
+              label: selected?.label ?? seriesKey,
+              values: rebaseSeries(data.months, values, fromDate),
+              color: SERIES_COLORS[seriesKey] ?? "#2563eb",
+            }]}
             markers={[
               { month: conversion.fromMonth, label: "From" },
               { month: conversion.toMonth, label: "To" },
@@ -701,9 +779,8 @@ function Converter({
       )}
 
       <aside className="formula-note">
-        <strong>How it works</strong>
         <code>amount × (time-to ÷ time-from) × (location-to ÷ location-from)</code>
-        <p>Time uses {selected?.label}; location uses BEA {locationVintage} Regional Price Parities. It does not invent daily or current local precision.</p>
+        <p>{selected?.label} · BEA {locationVintage} RPP · no daily or live local precision.</p>
       </aside>
     </section>
   );
@@ -736,17 +813,16 @@ function Weights({
   return (
     <section className="page weights-page">
       <div className="page-title">
-        <p className="eyebrow">Make the index yours</p>
-        <h1>Basket weights</h1>
-        <p>Use percentages or monthly dollars. Only proportions matter; they do not have to total 100.</p>
-      </div>
-      <div className="segmented">
-        <button className={mode === "lived" ? "active" : ""} onClick={() => setMode("lived")}>Lived experience</button>
-        <button className={mode === "cpi" ? "active" : ""} onClick={() => setMode("cpi")}>CPI-style</button>
+        <h1>Weights</h1>
+        <p>Percentages or dollars—only proportions matter. Saved on this device.</p>
       </div>
       <div className="weights-toolbar">
-        <span>Total weight: <strong>{total.toFixed(2)}</strong></span>
-        <button onClick={reset}>Reset to defaults</button>
+        <div className="segmented">
+          <button className={mode === "lived" ? "active" : ""} onClick={() => setMode("lived")}>Lived</button>
+          <button className={mode === "cpi" ? "active" : ""} onClick={() => setMode("cpi")}>CPI-style</button>
+        </div>
+        <span>Total <strong>{total.toFixed(2)}</strong></span>
+        <button onClick={reset}>Reset</button>
       </div>
       <div className="weights-list">
         {components.map((series) => (
@@ -767,8 +843,7 @@ function Weights({
         ))}
       </div>
       <p className="weights-explain">
-        The composite is a weighted geometric mean: EXP(Σ weight × LN(coefficient) ÷ Σ weight).
-        Changes save automatically on this device and update both charts and Converter.
+        Weighted geometric mean: EXP(Σ w × LN(coef) ÷ Σ w). Updates charts and Converter immediately.
       </p>
     </section>
   );
@@ -786,14 +861,12 @@ function Sources({ data }: { data: InflationData }) {
   return (
     <section className="page sources-page">
       <div className="page-title">
-        <p className="eyebrow">Trace every line</p>
-        <h1>Sources & methods</h1>
-        <p>Every series links back to the publishing agency. Public data is not automatically perfect; these notes define the acronyms, list the URLs, and explain what each source can and cannot support.</p>
+        <h1>Sources</h1>
+        <p>Acronyms, dataset links, limits, and per-series provenance.</p>
       </div>
 
       <section className="source-section" aria-labelledby="acronyms-heading">
         <h2 id="acronyms-heading">Acronyms</h2>
-        <p className="source-section-lede">Terms used in the Map, Converter, and Sources tabs.</p>
         <dl className="acronym-list">
           {ACRONYMS.map((item) => (
             <div key={item.term}>
@@ -806,7 +879,6 @@ function Sources({ data }: { data: InflationData }) {
 
       <section className="source-section" aria-labelledby="bibliography-heading">
         <h2 id="bibliography-heading">Bibliography</h2>
-        <p className="source-section-lede">Direct links to the datasets and program pages used to build the workbook and coefficient maps.</p>
         <ol className="bibliography-list">
           {BIBLIOGRAPHY.map((entry) => (
             <li key={entry.id}>
@@ -820,8 +892,7 @@ function Sources({ data }: { data: InflationData }) {
       </section>
 
       <section className="source-section" aria-labelledby="reliability-heading">
-        <h2 id="reliability-heading">Reliability and limitations</h2>
-        <p className="source-section-lede">Why each family of sources is used here, and where its claims stop.</p>
+        <h2 id="reliability-heading">Limits</h2>
         {RELIABILITY_NOTES.map((note) => (
           <article className="reliability-note" key={note.title}>
             <h3>{note.title}</h3>
@@ -832,7 +903,7 @@ function Sources({ data }: { data: InflationData }) {
 
       {[...grouped.entries()].map(([group, series]) => (
         <section className="source-group" key={group}>
-          <h2>{group[0].toUpperCase() + group.slice(1)} series</h2>
+          <h2>{group[0].toUpperCase() + group.slice(1)}</h2>
           {series.map((item: SeriesMeta) => (
             <details key={item.key}>
               <summary>
@@ -843,15 +914,15 @@ function Sources({ data }: { data: InflationData }) {
                 <p><strong>Source:</strong> {item.source}</p>
                 <p><strong>Frequency:</strong> {item.frequency} · <strong>Units:</strong> {item.units}</p>
                 {item.note && <p>{item.note}</p>}
-                {item.url && <a href={item.url} target="_blank" rel="noreferrer">Open original source ↗</a>}
+                {item.url && <a href={item.url} target="_blank" rel="noreferrer">Source ↗</a>}
               </div>
             </details>
           ))}
         </section>
       ))}
       <div className="method-note">
-        <h2>Data treatment</h2>
-        <p>{data.meta.method} A small number of missing monthly observations are interpolated; late-starting water and milk series are spliced to closely related Bureau of Labor Statistics (BLS) indexes. Spatial coefficients remain cross-sectional at their survey vintages and are multiplied by—not substituted for—these January 1995-based time series. Details remain in the spreadsheet’s Data_Notes sheet.</p>
+        <h2>Treatment</h2>
+        <p>{data.meta.method} Sparse months are interpolated; late water/milk series are spliced to related BLS indexes. Spatial coefficients stay cross-sectional at survey vintage and multiply time ratios—they do not replace them. See Data_Notes in the workbook.</p>
       </div>
     </section>
   );

@@ -2,7 +2,7 @@
  * Salary / coefficient scaling helpers.
  *
  * Spatial coefficients are cross-sectional (median metro = 1.00 at survey year).
- * They are NOT time-indexed to Jan 1995. Combine with the inflation app's time
+ * They are NOT time-indexed. Combine with the inflation app's user-anchored time
  * coefficient separately — see docs/COEFFICIENTS.md.
  *
  * Core salary formula (same grain, same index):
@@ -77,14 +77,14 @@ export function getCoef(
 /**
  * Combine a spatial coefficient with a time coefficient from the inflation app.
  *
- * The inflation app uses Jan 1995 = 1.00. Spatial coefs use median metro = 1.00
+ * The inflation app sets the selected anchor month = 1.00. Spatial coefs use median metro = 1.00
  * at their survey year (~2024 for BEA). This helper only multiplies the two;
  * it does NOT invent CPI numbers — pass them from inflation.json.
  *
  *   value(place, month) =
  *     base_value * timeCoef(month) * (coef(place) / coef(refPlace))
  *
- * where timeCoef(month) = CPI(month) / CPI(Jan1995) from the inflation app.
+ * where timeCoef(month) = CPI(month) / CPI(anchor month) from the inflation app.
  */
 export function combineSpatialAndTemporal(args: {
   baseValue: number;

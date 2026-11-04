@@ -24,6 +24,8 @@ export interface InflationData {
   meta: {
     baseMonth: string;
     birthDate: string;
+    defaultAnchorDate: string;
+    firstMonth: string;
     retrieved: string;
     latestMonth: string;
     method: string;
@@ -31,7 +33,7 @@ export interface InflationData {
   };
   series: SeriesMeta[];
   months: string[];
-  coefficients: Record<string, Array<number | null>>;
+  levels: Record<string, Array<number | null>>;
 }
 
 export type WeightMap = Record<string, number>;
@@ -60,17 +62,17 @@ export function geometricComposite(
     let weightedLog = 0;
     let totalWeight = 0;
     for (const [key, weight] of Object.entries(weights)) {
-      const value = data.coefficients[key]?.[index];
-      if (weight > 0 && value !== null && value !== undefined && value > 0) {
-        weightedLog += weight * Math.log(value);
-        totalWeight += weight;
-      }
+      if (weight <= 0) continue;
+      const value = data.levels[key]?.[index];
+      if (value === null || value === undefined || value <= 0) return null;
+      weightedLog += weight * Math.log(value);
+      totalWeight += weight;
     }
     return totalWeight ? Math.exp(weightedLog / totalWeight) : null;
   });
 }
 
-export function getCoefficientSeries(
+export function getLevelSeries(
   data: InflationData,
   key: string,
   cpiWeights: WeightMap,
@@ -78,7 +80,45 @@ export function getCoefficientSeries(
 ): Array<number | null> {
   if (key === "composite_cpi") return geometricComposite(data, cpiWeights);
   if (key === "composite_lived") return geometricComposite(data, livedWeights);
-  return data.coefficients[key] ?? [];
+  return data.levels[key] ?? [];
+}
+
+export function rebaseSeries(
+  months: string[],
+  levels: Array<number | null>,
+  anchorDate: string,
+): Array<number | null> {
+  const anchorIndex = months.indexOf(monthKey(anchorDate));
+  const anchor = anchorIndex >= 0 ? levels[anchorIndex] : null;
+  if (anchor === null || anchor === undefined || anchor <= 0) {
+    return levels.map(() => null);
+  }
+  return levels.map((value) => value === null || value === undefined ? null : value / anchor);
+}
+
+export function getCoefficientSeries(
+  data: InflationData,
+  key: string,
+  cpiWeights: WeightMap,
+  livedWeights: WeightMap,
+  anchorDate: string,
+): Array<number | null> {
+  return rebaseSeries(
+    data.months,
+    getLevelSeries(data, key, cpiWeights, livedWeights),
+    anchorDate,
+  );
+}
+
+export function seriesRange(
+  months: string[],
+  values: Array<number | null>,
+): { firstMonth: string; lastMonth: string } | null {
+  const first = values.findIndex((value) => value !== null);
+  let last = values.length - 1;
+  while (last >= 0 && values[last] === null) last -= 1;
+  if (first < 0 || last < 0) return null;
+  return { firstMonth: months[first], lastMonth: months[last] };
 }
 
 export function monthKey(value: string): string {

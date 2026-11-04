@@ -38,7 +38,7 @@ interface Props {
   markers?: Array<{ month: string; label: string }>;
 }
 
-const COLORS = ["#167f77", "#d07a36", "#315d87", "#9c4f42", "#6f7f43", "#7c6394", "#457b69"];
+const COLORS = ["#2563eb", "#c2410c", "#0f766e", "#7c3aed", "#b45309", "#0369a1", "#475569"];
 
 export function TimeSeriesChart({
   months,
@@ -67,8 +67,8 @@ export function TimeSeriesChart({
       ? {
           silent: true,
           symbol: "none",
-          label: { formatter: "{b}", color: "#36555b", fontSize: 11 },
-          lineStyle: { color: "#6c898d", type: "dashed", width: 1 },
+          label: { formatter: "{b}", color: "#475569", fontSize: 11, fontFamily: "IBM Plex Mono" },
+          lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
           data: markers.map((marker) => ({ xAxis: marker.month, name: marker.label })),
         }
       : undefined,
@@ -91,14 +91,14 @@ export function TimeSeriesChart({
           top: 0,
           left: 0,
           right: 0,
-          textStyle: { color: "#304e55", fontFamily: "IBM Plex Sans" },
+          textStyle: { color: "#334155", fontFamily: "IBM Plex Sans" },
         },
     tooltip: {
       trigger: "axis",
       valueFormatter: (value: unknown) => (typeof value === "number" ? `${value.toFixed(3)}×` : "—"),
-      backgroundColor: "rgba(8, 35, 41, .94)",
+      backgroundColor: "rgba(15, 23, 42, .94)",
       borderWidth: 0,
-      textStyle: { color: "#f5faf8", fontFamily: "IBM Plex Sans" },
+      textStyle: { color: "#f8fafc", fontFamily: "IBM Plex Mono" },
     },
     xAxis: {
       type: "category",
@@ -107,30 +107,33 @@ export function TimeSeriesChart({
       axisLabel: compact
         ? { show: false }
         : {
-            color: "#61777b",
+            color: "#64748b",
+            fontFamily: "IBM Plex Mono",
             formatter: (value: string) => (value.endsWith("-01") ? value.slice(0, 4) : ""),
             hideOverlap: true,
           },
-      axisLine: { lineStyle: { color: "#b9c9c7" } },
+      axisLine: { lineStyle: { color: "#e2e8f0" } },
       axisTick: { show: false },
     },
     yAxis: {
       type: "value",
       scale: !compact,
-      axisLabel: compact ? { show: false } : { color: "#61777b", formatter: "{value}×" },
-      splitLine: { show: !compact, lineStyle: { color: "#dce6e3", type: "dashed" } },
+      axisLabel: compact
+        ? { show: false }
+        : { color: "#64748b", fontFamily: "IBM Plex Mono", formatter: "{value}×" },
+      splitLine: { show: !compact, lineStyle: { color: "#e2e8f0", type: "dashed" } },
     },
     dataZoom: zoom
       ? [
           { type: "inside", zoomOnMouseWheel: "shift", moveOnMouseWheel: true },
           {
             type: "slider",
-            height: 24,
-            bottom: 12,
+            height: 22,
+            bottom: 10,
             borderColor: "transparent",
-            fillerColor: "rgba(22, 127, 119, .16)",
-            backgroundColor: "#dfeae7",
-            handleStyle: { color: "#167f77", borderColor: "#167f77" },
+            fillerColor: "rgba(37, 99, 235, .14)",
+            backgroundColor: "#e2e8f0",
+            handleStyle: { color: "#2563eb", borderColor: "#2563eb" },
           },
         ]
       : undefined,

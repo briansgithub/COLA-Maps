@@ -140,12 +140,12 @@ export const DEFAULT_THEME: Required<CoeffTheme> = {
   surface: '#1e293b',
   text: '#e2e8f0',
   muted: '#94a3b8',
-  tealLow: '#0d9488',
+  tealLow: '#0284c7',
   neutral: '#cbd5e1',
   copperHigh: '#c2410c',
   missing: '#334155',
   stroke: '#0f172a',
-  fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+  fontFamily: "'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif",
 };
 
 export interface CoeffMapProps {

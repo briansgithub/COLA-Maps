@@ -154,7 +154,7 @@ export const RELIABILITY_NOTES: ReliabilityNote[] = [
   },
   {
     title: "Bureau of Labor Statistics Average Price Data",
-    body: "Average Price Data report actual observed dollar prices for specific items—eggs per dozen, milk per gallon, gasoline per gallon, electricity per kilowatt-hour, and similar shelf prices. Because the units are concrete dollars rather than index points, these series are useful cross-checks on how everyday items moved relative to the broader CPI. Reliability comes from the same BLS collection system, but coverage is narrower: only selected items are published, city and quality mix can shift, and some series start later than January 1995 or have gaps. They should be read as illustrative item prices, not as a complete cost-of-living index.",
+    body: "Average Price Data report actual observed dollar prices for specific items—eggs per dozen, milk per gallon, gasoline per gallon, electricity per kilowatt-hour, and similar shelf prices. Because the units are concrete dollars rather than index points, these series are useful cross-checks on how everyday items moved relative to the broader CPI. Reliability comes from the same BLS collection system, but coverage is narrower: only selected items are published, city and quality mix can shift, and many series start later than CPI-U or have gaps. They should be read as illustrative item prices, not as a complete cost-of-living index.",
   },
   {
     title: "Bureau of Economic Analysis Personal Consumption Expenditures price index",
@@ -178,7 +178,7 @@ export const RELIABILITY_NOTES: ReliabilityNote[] = [
   },
   {
     title: "BEA Regional Price Parities for metro areas",
-    body: "Regional Price Parities (RPP) from BEA compare price levels across metropolitan areas in a given year, with the national average indexed to 100. This app converts those levels so the median metro equals 1.00 and uses the 2024 metro all-items RPP for purchasing-power location adjustments. The series is valid for place-to-place comparisons because it is an official BEA product designed for spatial price levels rather than time inflation. Limitations include the cross-sectional vintage—2024 RPP is not a January 1995 time coefficient—and the metro grain: RPPs do not resolve neighborhoods, and they should not be mixed with county or place proxy coefficients in the same conversion.",
+    body: "Regional Price Parities (RPP) from BEA compare price levels across metropolitan areas in a given year, with the national average indexed to 100. This app converts those levels so the median metro equals 1.00 and uses the 2024 metro all-items RPP for purchasing-power location adjustments. The series is valid for place-to-place comparisons because it is an official BEA product designed for spatial price levels rather than time inflation. Limitations include the cross-sectional vintage—2024 RPP is not a user-anchor time coefficient—and the metro grain: RPPs do not resolve neighborhoods, and they should not be mixed with county or place proxy coefficients in the same conversion.",
   },
   {
     title: "OUSEA experimental county Regional Price Parities",
