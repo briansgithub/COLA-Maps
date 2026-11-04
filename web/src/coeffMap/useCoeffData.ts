@@ -89,6 +89,7 @@ export function useCoeffData(grain: CoeffGrain): CoeffBundle {
   const { meta, loading: metaLoading, error: metaError } = useCoeffMeta();
   const [data, setData] = useState<CoeffDataMap | null>(null);
   const [geo, setGeo] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [loadedGrain, setLoadedGrain] = useState<CoeffGrain | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,6 +107,7 @@ export function useCoeffData(grain: CoeffGrain): CoeffBundle {
         if (!cancelled) {
           setData(d);
           setGeo(g);
+          setLoadedGrain(grain);
         }
       })
       .catch((e: unknown) => {
@@ -119,11 +121,12 @@ export function useCoeffData(grain: CoeffGrain): CoeffBundle {
     };
   }, [grain]);
 
+  const stale = loadedGrain !== grain;
   return {
     meta,
-    data,
-    geo,
-    loading: loading || metaLoading,
+    data: stale ? null : data,
+    geo: stale ? null : geo,
+    loading: loading || metaLoading || stale,
     error: error || metaError,
   };
 }

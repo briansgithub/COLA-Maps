@@ -23,9 +23,11 @@ import {
   INDEX_LABEL,
   coefficientVintage,
   formatLocationLabel,
+  formatPlaceName,
   getCoef,
   useCoeffData,
   useCoeffMeta,
+  useFilteredCoeffData,
   type CoeffGrain,
   type CoeffIndex,
   type CoeffRecord,
@@ -427,19 +429,51 @@ const MAP_INDEXES: Record<CoeffGrain, CoeffIndex[]> = {
   place: ["bea", "housing", "acs", "hud", "avg_weighted", "avg_simple"],
 };
 
+const GRAIN_CAVEAT: Record<CoeffGrain, string> = {
+  metro: "Official BEA metro price levels.",
+  county: "OUSEA experimental county estimates.",
+  place: "Rent-scaled place proxy, not an official all-items index.",
+};
+
+function vsMedianPhrase(coef: number): string {
+  const pct = Math.round((coef - 1) * 100);
+  if (pct === 0) return "about the US median metro";
+  if (pct > 0) return `${pct}% above median metro`;
+  return `${Math.abs(pct)}% below median metro`;
+}
+
 function MapTab() {
   const [grain, setGrain] = useState<CoeffGrain>("metro");
   const [index, setIndex] = useState<CoeffIndex>("bea");
   const [focusRegion, setFocusRegion] = useState<FocusRegion>("all");
   const [selected, setSelected] = useState<CoeffRecord | null>(null);
   const { meta } = useCoeffMeta();
+  const bundle = useFilteredCoeffData(grain, grain === "metro" ? null : focusRegion);
   const vintage = coefficientVintage(meta, grain, index);
   const selectedCoef = getCoef(selected, index);
+  const searchNoun = grain === "metro" ? "metros" : grain === "county" ? "counties" : "places";
+  const searchOptions = useMemo<LocationChoice[]>(() => {
+    const options: LocationChoice[] = [];
+    for (const record of Object.values(bundle.data ?? {})) {
+      if (!record.name) continue;
+      options.push({ geoid: record.geoid, label: formatPlaceName(record) });
+    }
+    options.sort((a, b) => a.label.localeCompare(b.label));
+    return options;
+  }, [bundle.data]);
 
   const changeGrain = (next: CoeffGrain) => {
     setGrain(next);
     setIndex("bea");
     setSelected(null);
+  };
+
+  const pickLocation = (geoid: string) => {
+    if (!geoid) {
+      setSelected(null);
+      return;
+    }
+    setSelected(bundle.data?.[geoid] ?? null);
   };
 
   return (
@@ -460,7 +494,7 @@ function MapTab() {
         </label>
         <label>
           Cost measure
-          <select value={index} onChange={(event) => { setIndex(event.target.value as CoeffIndex); setSelected(null); }}>
+          <select value={index} onChange={(event) => setIndex(event.target.value as CoeffIndex)}>
             {MAP_INDEXES[grain].map((key) => <option key={key} value={key}>{INDEX_LABEL[key]}</option>)}
           </select>
         </label>
@@ -477,6 +511,19 @@ function MapTab() {
             </select>
           </label>
         )}
+        <LocationSelect
+          key={`${grain}-${focusRegion}`}
+          id="map-location-search"
+          className="map-search"
+          label="Find"
+          value={selected?.geoid ?? ""}
+          options={searchOptions}
+          loading={bundle.loading}
+          searchPlaceholder={`Filter ${searchNoun}`}
+          emptyLabel={`Jump to a ${grain === "metro" ? "metro" : grain === "county" ? "county" : "place"}`}
+          maxVisible={100}
+          onChange={pickLocation}
+        />
         <div className="map-vintage">
           <span>Vintage</span>
           <strong>{vintage}</strong>
@@ -487,7 +534,8 @@ function MapTab() {
         grain={grain}
         index={index}
         focusRegion={focusRegion}
-        height="clamp(360px, 55vh, 560px)"
+        selectedGeoid={selected?.geoid ?? null}
+        height="clamp(400px, 58vh, 640px)"
         onSelect={(record) => setSelected(record)}
         className="cost-map"
         theme={{
@@ -507,20 +555,33 @@ function MapTab() {
       <div className="map-selection" aria-live="polite">
         {selected ? (
           <>
-            <strong>{formatLocationLabel(selected, vintage)}</strong>
-            <p>{INDEX_LABEL[index]}: {selectedCoef == null ? "Unavailable" : `${selectedCoef.toFixed(3)}× median metro`}</p>
+            <div className="map-selection-head">
+              <strong>{formatPlaceName(selected)}</strong>
+              <button type="button" onClick={() => setSelected(null)}>Clear</button>
+            </div>
+            <p>
+              {INDEX_LABEL[index]}: {selectedCoef == null ? "Unavailable" : `${selectedCoef.toFixed(3)}×`}
+              {selectedCoef != null && <> · {vsMedianPhrase(selectedCoef)}</>}
+            </p>
+            {selected.population != null && (
+              <p>Population {selected.population.toLocaleString()}</p>
+            )}
+            <p className="map-selection-note">{GRAIN_CAVEAT[grain]}</p>
           </>
         ) : (
-          <p>Click a region · scroll to zoom · drag to pan</p>
+          <p>Click a region · search to jump · scroll to zoom · drag to pan</p>
         )}
       </div>
     </section>
   );
 }
 
-interface LocationOption {
+interface LocationChoice {
   geoid: string;
   label: string;
+}
+
+interface LocationOption extends LocationChoice {
   coefficient: number;
 }
 
@@ -531,34 +592,53 @@ function LocationSelect({
   options,
   loading,
   onChange,
+  className,
+  searchPlaceholder = "Filter metros",
+  emptyLabel,
+  maxVisible,
 }: {
   id: string;
   label: string;
   value: string;
-  options: LocationOption[];
+  options: LocationChoice[];
   loading: boolean;
   onChange: (geoid: string) => void;
+  className?: string;
+  searchPlaceholder?: string;
+  emptyLabel?: string;
+  maxVisible?: number;
 }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return options;
-    const matches = options.filter((option) => option.label.toLowerCase().includes(term));
+    let matches = !term
+      ? options
+      : options.filter((option) => option.label.toLowerCase().includes(term));
     const selected = options.find((option) => option.geoid === value);
-    return selected && !matches.some((option) => option.geoid === value) ? [selected, ...matches] : matches;
-  }, [options, query, value]);
+    if (selected && !matches.some((option) => option.geoid === value)) {
+      matches = [selected, ...matches];
+    }
+    if (maxVisible != null && matches.length > maxVisible) {
+      const kept = selected && matches[0]?.geoid !== selected.geoid
+        ? [selected, ...matches.filter((option) => option.geoid !== selected.geoid)]
+        : matches;
+      matches = kept.slice(0, maxVisible);
+    }
+    return matches;
+  }, [options, query, value, maxVisible]);
 
   return (
-    <label className="location-field" htmlFor={id}>
+    <label className={className ? `location-field ${className}` : "location-field"} htmlFor={id}>
       {label}
       <input
         type="search"
-        placeholder="Filter metros"
+        placeholder={searchPlaceholder}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         aria-label={`Search ${label.toLowerCase()}`}
       />
       <select id={id} value={value} disabled={loading} onChange={(event) => onChange(event.target.value)}>
+        {emptyLabel && <option value="">{emptyLabel}</option>}
         {filtered.map((option) => <option key={option.geoid} value={option.geoid}>{option.label}</option>)}
       </select>
     </label>

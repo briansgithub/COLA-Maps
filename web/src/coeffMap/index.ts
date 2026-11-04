@@ -43,4 +43,5 @@ export {
 export {
   coefficientVintage,
   formatLocationLabel,
+  formatPlaceName,
 } from './vintage';

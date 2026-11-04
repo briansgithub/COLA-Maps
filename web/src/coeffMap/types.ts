@@ -159,7 +159,9 @@ export interface CoeffMapProps {
   focusRegion?: FocusRegion | null;
   /** Optional baseline GEOID for relative rebasing in tooltips/selection */
   baselineGeoid?: string | null;
-  /** Called when a feature is clicked */
+  /** Controlled selected feature (highlight + fly-to) */
+  selectedGeoid?: string | null;
+  /** Called when a feature is clicked, or when the current selection is cleared */
   onSelect?: (record: CoeffRecord | null, geoid: string | null) => void;
   /** Map height CSS value */
   height?: string | number;

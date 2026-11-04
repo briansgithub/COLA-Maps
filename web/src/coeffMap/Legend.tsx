@@ -31,16 +31,12 @@ export function Legend({
 
   return (
     <div
+      className="coeff-legend"
       style={{
         background: t.surface,
         color: t.text,
         border: `1px solid ${t.stroke}`,
-        borderRadius: 12,
-        padding: '10px 12px',
-        width: 260,
         fontFamily: t.fontFamily,
-        fontSize: 12,
-        boxShadow: '0 8px 24px rgba(0,0,0,.35)',
         ...style,
       }}
     >
@@ -54,7 +50,7 @@ export function Legend({
         }}
       >
         <span>{INDEX_LABEL[index]}</span>
-        <span style={{ color: t.muted, fontWeight: 500 }}>
+        <span className="coeff-legend-subtitle" style={{ color: t.muted, fontWeight: 500 }}>
           {subtitle ?? '1.00 = median metro'}
         </span>
       </div>

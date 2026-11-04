@@ -24,13 +24,19 @@ export function coefficientVintage(
   return yearFromIndex(meta, 'bea_rpp') ?? '2024';
 }
 
+export function formatPlaceName(
+  record: Pick<CoeffRecord, 'name' | 'state'> | null | undefined,
+  fallback = 'Unknown location',
+): string {
+  const name = record?.name?.trim() || fallback;
+  const state = record?.state?.trim();
+  return state && !name.endsWith(`, ${state}`) ? `${name}, ${state}` : name;
+}
+
 export function formatLocationLabel(
   record: Pick<CoeffRecord, 'name' | 'state'> | null | undefined,
   vintage: string,
   fallback = 'Unknown location',
 ): string {
-  const name = record?.name?.trim() || fallback;
-  const state = record?.state?.trim();
-  const place = state && !name.endsWith(`, ${state}`) ? `${name}, ${state}` : name;
-  return `${place} (${vintage})`;
+  return `${formatPlaceName(record, fallback)} (${vintage})`;
 }

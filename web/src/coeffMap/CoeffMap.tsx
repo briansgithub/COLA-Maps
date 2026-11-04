@@ -31,6 +31,8 @@ echarts.use([
   CanvasRenderer,
 ]);
 
+const SERIES_ID = 'coeff-series';
+
 function featureId(f: GeoJSON.Feature): string {
   return String(
     f.id ?? (f.properties as { geoid?: string } | null)?.geoid ?? '',
@@ -48,12 +50,64 @@ function valueOf(
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
+function featureCentroid(feature: GeoJSON.Feature | undefined): [number, number] | null {
+  if (!feature?.geometry) return null;
+  const rings: number[][][] = [];
+  if (feature.geometry.type === 'Polygon') {
+    rings.push(feature.geometry.coordinates[0] as number[][]);
+  } else if (feature.geometry.type === 'MultiPolygon') {
+    for (const poly of feature.geometry.coordinates) {
+      rings.push(poly[0] as number[][]);
+    }
+  } else {
+    return null;
+  }
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  for (const ring of rings) {
+    for (const pt of ring) {
+      if (typeof pt[0] === 'number' && typeof pt[1] === 'number') {
+        sx += pt[0];
+        sy += pt[1];
+        n += 1;
+      }
+    }
+  }
+  return n ? [sx / n, sy / n] : null;
+}
+
+function coordsFor(
+  rec: CoeffRecord | undefined,
+  geo: GeoJSON.FeatureCollection,
+  geoid: string,
+): [number, number] | null {
+  if (
+    rec &&
+    typeof rec.lon === 'number' &&
+    typeof rec.lat === 'number' &&
+    Number.isFinite(rec.lon) &&
+    Number.isFinite(rec.lat)
+  ) {
+    return [rec.lon, rec.lat];
+  }
+  const feature = geo.features.find((f) => featureId(f) === geoid);
+  return featureCentroid(feature);
+}
+
+function flyZoom(grain: CoeffMapProps['grain']): number {
+  if (grain === 'place') return 8;
+  if (grain === 'county') return 5.5;
+  return 3.2;
+}
+
 export function CoeffMap({
   grain,
   index,
   metric = 'coef',
   focusRegion = null,
   baselineGeoid = null,
+  selectedGeoid = null,
   onSelect,
   height = 480,
   theme,
@@ -66,19 +120,27 @@ export function CoeffMap({
     focusRegion,
   );
   const chartRef = useRef<HTMLDivElement>(null);
+  const instanceRef = useRef<echarts.EChartsType | null>(null);
+  const onSelectRef = useRef(onSelect);
+  const selectedGeoidRef = useRef(selectedGeoid);
+  const mapNameRef = useRef('');
+  const flownGeoidRef = useRef<string | null>(null);
+  const skipFlyRef = useRef(false);
+  const [viewEpoch, setViewEpoch] = useState(0);
   const mapName = `coeff-${grain}`;
-  const [mapReady, setMapReady] = useState(false);
 
-  // Register GeoJSON with ECharts whenever grain/geo changes
+  onSelectRef.current = onSelect;
+  selectedGeoidRef.current = selectedGeoid;
+
+  const mapReady = Boolean(geo && !loading && !error);
+
   useEffect(() => {
-    setMapReady(false);
-    if (!geo) return;
+    if (!geo || !mapReady) return;
     echarts.registerMap(
       mapName,
       geo as unknown as Parameters<typeof echarts.registerMap>[1],
     );
-    setMapReady(true);
-  }, [geo, mapName]);
+  }, [geo, mapName, mapReady]);
 
   const seriesData = useMemo(() => {
     if (!geo || !data) return [] as Array<{
@@ -90,7 +152,6 @@ export function CoeffMap({
       const id = featureId(f);
       const rec = data[id];
       let v = valueOf(rec, index, metric);
-      // Optional visual rebase when metric is coef and baseline set
       if (
         metric === 'coef' &&
         v != null &&
@@ -114,33 +175,28 @@ export function CoeffMap({
     const vals = seriesData
       .map((d: { value: number | null }) => d.value)
       .filter((v: number | null): v is number => v != null && Number.isFinite(v));
-    // For coef metric always center on 1; for raw use data-driven
     if (metric === 'coef') return computeDomain(vals.length ? vals : [1]);
     if (!vals.length) return computeDomain([1]);
     const min = Math.min(...vals);
     const max = Math.max(...vals);
-    // Fake a domain around midpoint so colorForCoef still works; legend notes raw
     const mid = (min + max) / 2 || 1;
     return {
       lo: min,
       hi: max,
       min,
       max,
-      // colorForCoef expects center at 1 — for raw we remap below
       _mid: mid,
     } as ReturnType<typeof computeDomain> & { _mid?: number };
   }, [seriesData, metric]);
 
   const pieces = useMemo(() => {
-    // Build visualMap pieces using our teal/copper scale for coef mode
     const stops: { gt?: number; gte?: number; lt?: number; lte?: number; color: string }[] = [];
     if (metric !== 'coef') {
-      // continuous raw — approximate with 6 bins
       const { lo, hi } = domain;
       const n = 6;
       for (let i = 0; i < n; i++) {
         const a = lo + ((hi - lo) * i) / n;
-        const b = lo + ((hi - lo) * (i + 1)) / n;
+        const b = lo + ((hi - lo) * (i + 1) / n);
         const tNorm = i / (n - 1);
         const color =
           tNorm < 0.5
@@ -175,15 +231,7 @@ export function CoeffMap({
 
   const option: EChartsOption = useMemo(() => {
     if (!geo || !mapReady) {
-      return {
-        backgroundColor: t.background,
-        title: {
-          text: loading ? 'Loading map…' : error || 'No geography',
-          left: 'center',
-          top: 'middle',
-          textStyle: { color: t.muted, fontFamily: t.fontFamily, fontSize: 14 },
-        },
-      };
+      return { backgroundColor: t.background };
     }
 
     return {
@@ -218,11 +266,15 @@ export function CoeffMap({
       },
       series: [
         {
+          id: SERIES_ID,
           name: INDEX_LABEL[index],
           type: 'map',
           map: mapName,
           roam: true,
+          selectedMode: 'single',
+          scaleLimit: { min: 1, max: 16 },
           nameProperty: 'geoid',
+          label: { show: false },
           itemStyle: {
             borderColor: t.stroke,
             borderWidth: grain === 'place' ? 0.4 : 0.6,
@@ -239,13 +291,15 @@ export function CoeffMap({
           select: {
             itemStyle: {
               borderColor: '#fbbf24',
-              borderWidth: 1.5,
+              borderWidth: 2,
             },
+            label: { show: false },
           },
           data: seriesData.map((d: { name: string; value: number | null; record: CoeffRecord | undefined }) => ({
             name: d.name,
             value: d.value ?? undefined,
             record: d.record,
+            selected: Boolean(selectedGeoid) && d.name === selectedGeoid,
             itemStyle:
               d.value == null
                 ? { areaColor: t.missing }
@@ -265,8 +319,6 @@ export function CoeffMap({
     geo,
     mapReady,
     mapName,
-    loading,
-    error,
     t,
     index,
     metric,
@@ -274,19 +326,29 @@ export function CoeffMap({
     meta,
     seriesData,
     pieces,
+    selectedGeoid,
   ]);
 
   useEffect(() => {
     const container = chartRef.current;
     if (!container) return;
     const chart = echarts.getInstanceByDom(container) ?? echarts.init(container);
-    chart.setOption(option, { notMerge: true, lazyUpdate: true });
+    instanceRef.current = chart;
     const onClick = (params: unknown) => {
-      if (!onSelect) return;
-      const p = params as { data?: { record?: CoeffRecord; name?: string } };
+      const handler = onSelectRef.current;
+      if (!handler) return;
+      const p = params as {
+        data?: { record?: CoeffRecord; name?: string };
+        name?: string;
+      };
       const rec = p.data?.record ?? null;
-      const id = p.data?.name ?? rec?.geoid ?? null;
-      onSelect(rec, id);
+      const id = p.data?.name ?? rec?.geoid ?? p.name ?? null;
+      if (!id) return;
+      if (id === selectedGeoidRef.current) {
+        handler(null, null);
+        return;
+      }
+      handler(rec, id);
     };
     chart.on('click', onClick);
     const resizeObserver = new ResizeObserver(() => chart.resize());
@@ -294,15 +356,56 @@ export function CoeffMap({
     return () => {
       resizeObserver.disconnect();
       chart.off('click', onClick);
+      chart.dispose();
+      instanceRef.current = null;
     };
-  }, [option, onSelect]);
+  }, [viewEpoch]);
 
-  useEffect(() => () => {
+  useEffect(() => {
     const container = chartRef.current;
-    if (container) echarts.getInstanceByDom(container)?.dispose();
-  }, []);
+    if (!container) return;
+    const chart = echarts.getInstanceByDom(container);
+    if (!chart) return;
+    const layoutKey = mapReady ? mapName : `${mapName}:loading`;
+    const identityChanged = mapNameRef.current !== layoutKey;
+    mapNameRef.current = layoutKey;
+    const skipFly = skipFlyRef.current;
+    if (skipFly) {
+      skipFlyRef.current = false;
+      flownGeoidRef.current = selectedGeoid;
+    }
+    if (identityChanged) flownGeoidRef.current = null;
+    chart.setOption(option, { notMerge: identityChanged || skipFly });
+    const shouldFly =
+      Boolean(selectedGeoid) &&
+      !skipFly &&
+      flownGeoidRef.current !== selectedGeoid &&
+      mapReady &&
+      Boolean(geo);
+    if (shouldFly && selectedGeoid && geo) {
+      const coords = coordsFor(data?.[selectedGeoid], geo, selectedGeoid);
+      if (coords) {
+        flownGeoidRef.current = selectedGeoid;
+        chart.setOption({
+          series: [{ id: SERIES_ID, center: coords, zoom: flyZoom(grain) }],
+        });
+      }
+    }
+    if (!selectedGeoid) flownGeoidRef.current = null;
+  }, [option, mapName, mapReady, selectedGeoid, geo, data, grain, viewEpoch]);
+
+  const resetView = () => {
+    skipFlyRef.current = true;
+    flownGeoidRef.current = selectedGeoid;
+    setViewEpoch((n) => n + 1);
+  };
 
   const heightCss = typeof height === 'number' ? `${height}px` : height;
+  const statusMessage = error
+    ? error
+    : loading || !mapReady
+      ? 'Loading map…'
+      : null;
 
   return (
     <div
@@ -312,14 +415,28 @@ export function CoeffMap({
         width: '100%',
         height: heightCss,
         background: t.background,
-        borderRadius: 12,
         overflow: 'hidden',
         fontFamily: t.fontFamily,
       }}
     >
-      <div ref={chartRef} style={{ width: '100%', height: '100%' }} />
-      {showLegend && mapReady && !loading && !error && metric === 'coef' && (
-        <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 2 }}>
+      <div key={viewEpoch} ref={chartRef} style={{ width: '100%', height: '100%' }} />
+      {mapReady && (
+        <div className="coeff-map-chrome">
+          <button type="button" onClick={resetView} aria-label="Reset map view">
+            Reset view
+          </button>
+        </div>
+      )}
+      {statusMessage && (
+        <div
+          className={`coeff-map-status${error ? ' coeff-map-status-error' : ''}`}
+          style={{ background: `${t.background}b8`, color: error ? '#b91c1c' : t.muted }}
+        >
+          {statusMessage}
+        </div>
+      )}
+      {showLegend && mapReady && metric === 'coef' && (
+        <div className="coeff-map-legend-wrap">
           <Legend
             domain={domain}
             index={index}
@@ -332,20 +449,8 @@ export function CoeffMap({
           />
         </div>
       )}
-      {meta && (
-        <div
-          style={{
-            position: 'absolute',
-            right: 12,
-            bottom: 12,
-            zIndex: 2,
-            color: t.muted,
-            fontSize: 10,
-            maxWidth: 220,
-            textAlign: 'right',
-            pointerEvents: 'none',
-          }}
-        >
+      {meta && mapReady && (
+        <div className="coeff-map-footnote" style={{ color: t.muted }}>
           {grain === 'county' && 'County: OUSEA experimental'}
           {grain === 'place' && 'Place: rent-scaled proxy'}
           {grain === 'metro' && 'Metro: BEA MARPP 2024'}
