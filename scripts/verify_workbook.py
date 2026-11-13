@@ -7,6 +7,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pandas as pd
 from openpyxl import load_workbook
 from pycel import ExcelCompiler
 
@@ -61,18 +62,31 @@ def main() -> None:
 
     payload = json.loads(bw.WEB_DATA_PATH.read_text(encoding="utf-8"))
     assert payload["meta"]["baseMonth"] == "1995-01"
-    assert payload["months"][0] == "1995-01"
+    assert payload["meta"]["defaultAnchorDate"] == "1995-01-20"
+    assert payload["months"][0] == "1913-01"
     assert payload["months"][-1] == df.index[-1].strftime("%Y-%m")
-    assert len(payload["series"]) == len(payload["coefficients"])
-    for key, values in payload["coefficients"].items():
-        assert len(values) == len(df), f"{key}: wrong number of observations"
-        if values[0] is not None:
-            assert abs(values[0] - 1.0) < 1e-9, f"{key}: base month is not 1.0"
-    for key in ("composite_cpi", "composite_lived"):
-        exported = payload["coefficients"][key]
-        expected = coef[key].tolist()
-        assert max(abs(a - b) for a, b in zip(exported, expected)) < 1e-8
+    assert len(payload["series"]) == len(payload["levels"])
+    for key, values in payload["levels"].items():
+        assert len(values) == len(payload["months"]), f"{key}: wrong number of observations"
+
+    month_to_index = {month: index for index, month in enumerate(payload["months"])}
+    base_index = month_to_index["1995-01"]
+    compared = 0
+    for key in set(coef.columns) & set(payload["levels"]):
+        levels = payload["levels"][key]
+        anchor = levels[base_index]
+        if anchor is None:
+            continue
+        for month, expected in coef[key].items():
+            if pd.isna(expected):
+                continue
+            level = levels[month_to_index[month.strftime("%Y-%m")]]
+            assert level is not None
+            assert abs(level / anchor - expected) < 1e-6, f"{key} differs at {month:%Y-%m}"
+            compared += 1
+    assert compared > 10_000
     print(f"  Web data: {len(payload['series'])} series x {len(payload['months'])} months")
+    print(f"  Web rebasing: {compared} January 1995-anchored values match the workbook")
 
 
 if __name__ == "__main__":

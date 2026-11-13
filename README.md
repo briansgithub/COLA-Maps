@@ -55,7 +55,7 @@ Personal basket weights are stored only in that browser’s `localStorage`; they
 
 ## Data and calculation
 
-The PWA consumes `web/public/data/inflation.json`, generated from the same `SPECS` definitions used by the workbook. Its custom composites use:
+The PWA consumes `web/public/data/inflation.json`, generated from the same `SPECS` definitions used by the workbook. It retains each unchanged source back to its published start (CPI-U begins in 1913) and stores source levels rather than a permanently rebased coefficient. Explore divides each level by the level at the user-selected anchor month; the default anchor remains January 20, 1995. Its custom composites use:
 
 ```text
 EXP(sum(weight × LN(category coefficient)) / sum(weights))

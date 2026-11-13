@@ -36,10 +36,15 @@ OUT_DIR = ROOT / "output"
 WORKBOOK_PATH = OUT_DIR / "US_Dollar_Inflation_Coefficient.xlsx"
 WEB_DATA_PATH = ROOT / "web" / "public" / "data" / "inflation.json"
 BASE = pd.Timestamp("1995-01-01")
+WEB_START_YEAR = 1913
 REFRESH = "--refresh" in sys.argv
 RETRIEVED = date.today().isoformat()
 
 BLS_URL = "https://api.bls.gov/publicAPI/v1/timeseries/data/"
+BLS_BULK_URLS = {
+    "CU": "https://download.bls.gov/pub/time.series/cu/cu.data.0.Current",
+    "AP": "https://download.bls.gov/pub/time.series/ap/ap.data.0.Current",
+}
 FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}"
 BIG_MAC_URL = "https://raw.githubusercontent.com/TheEconomist/big-mac-data/master/output-data/big-mac-full-index.csv"
 USPS_URL = "https://about.usps.com/who/profile/history/domestic-letter-rates-since-1863.htm"
@@ -49,7 +54,11 @@ WEIGHTS_URL = "https://www.bls.gov/cpi/tables/relative-importance/2025.htm"
 
 # First-class 1-oz letter, cents, by effective date (USPS rate history).
 STAMP_RATES = [
-    ("1991-02-03", 29), ("1995-01-01", 32), ("1999-01-10", 33), ("2001-01-07", 34),
+    ("1885-07-01", 2), ("1917-11-02", 3), ("1919-07-01", 2), ("1932-07-06", 3),
+    ("1958-08-01", 4), ("1963-01-07", 5), ("1968-01-07", 6), ("1971-05-16", 8),
+    ("1974-03-02", 10), ("1975-12-31", 13), ("1978-05-29", 15), ("1981-03-22", 18),
+    ("1981-11-01", 20), ("1985-02-17", 22), ("1988-04-03", 25), ("1991-02-03", 29),
+    ("1995-01-01", 32), ("1999-01-10", 33), ("2001-01-07", 34),
     ("2002-06-30", 37), ("2006-01-08", 39), ("2007-05-14", 41), ("2008-05-12", 42),
     ("2009-05-11", 44), ("2012-01-22", 45), ("2013-01-27", 46), ("2014-01-26", 49),
     ("2016-04-10", 47), ("2017-01-22", 49), ("2018-01-21", 50), ("2019-01-27", 55),
@@ -59,7 +68,9 @@ STAMP_RATES = [
 
 # American Farm Bureau classic Thanksgiving dinner for 10, USD (surveyed each November).
 AFBF_THANKSGIVING = {
-    1994: 28.40, 1995: 29.64, 1996: 31.66, 1997: 31.75, 1998: 33.09, 1999: 33.83,
+    1986: 28.74, 1987: 24.51, 1988: 26.61, 1989: 24.70, 1990: 28.85, 1991: 25.95,
+    1992: 26.39, 1993: 27.49, 1994: 28.40, 1995: 29.64, 1996: 31.66, 1997: 31.75,
+    1998: 33.09, 1999: 33.83,
     2000: 32.37, 2001: 35.04, 2002: 34.56, 2003: 36.28, 2004: 35.68, 2005: 36.78,
     2006: 38.10, 2007: 42.26, 2008: 44.61, 2009: 42.91, 2010: 43.47, 2011: 49.20,
     2012: 49.48, 2013: 49.04, 2014: 49.41, 2015: 50.11, 2016: 49.87, 2017: 49.12,
@@ -177,14 +188,58 @@ SPECS: list[Spec] = [
 BY_KEY = {s.key: s for s in SPECS}
 
 
-def fetch_bls(ids: list[str]) -> dict[str, pd.Series]:
+def fetch_bls_bulk(ids: list[str], start_year: int) -> dict[str, pd.Series]:
+    """Fallback to BLS's official bulk files when the anonymous API reaches its daily cap."""
+    label = hashlib.md5(",".join(sorted(ids)).encode()).hexdigest()[:10]
+    cache = RAW_DIR / f"bls_bulk_{label}_{start_year}.json"
+    if cache.exists() and not REFRESH:
+        cached = json.loads(cache.read_text())
+        return {
+            sid: pd.Series({pd.Timestamp(month): value for month, value in points.items()}, dtype=float).sort_index()
+            for sid, points in cached.items()
+        }
+
+    targets = set(ids)
+    points: dict[str, dict[pd.Timestamp, float]] = {sid: {} for sid in ids}
+    prefixes = {sid[:2] for sid in ids}
+    headers = {"User-Agent": "Mozilla/5.0 research contact user@example.com"}
+    for prefix in prefixes:
+        url = BLS_BULK_URLS[prefix]
+        response = requests.get(url, headers=headers, timeout=180)
+        response.raise_for_status()
+        for line in response.text.splitlines()[1:]:
+            fields = line.split("\t")
+            if len(fields) < 4:
+                continue
+            sid, year_text, period, value_text = (field.strip() for field in fields[:4])
+            if sid not in targets or not period.startswith("M") or period == "M13":
+                continue
+            year = int(year_text)
+            if year < start_year:
+                continue
+            try:
+                points[sid][pd.Timestamp(year, int(period[1:]), 1)] = float(value_text)
+            except ValueError:
+                continue
+
+    serialized = {
+        sid: {month.strftime("%Y-%m-%d"): value for month, value in series.items()}
+        for sid, series in points.items()
+    }
+    cache.write_text(json.dumps(serialized, separators=(",", ":")))
+    return {sid: pd.Series(series, dtype=float).sort_index() for sid, series in points.items()}
+
+
+def fetch_bls(ids: list[str], start_year: int = WEB_START_YEAR) -> dict[str, pd.Series]:
     """BLS API v1 allows 25 series and 10 years per request (and 25 requests per day without a key)."""
     if len(ids) > 25:
         out: dict[str, pd.Series] = {}
         for i in range(0, len(ids), 25):
-            out.update(fetch_bls(ids[i:i + 25]))
+            out.update(fetch_bls(ids[i:i + 25], start_year))
         return out
-    windows = [(1995, 2004), (2005, 2014), (2015, 2024), (2025, date.today().year)]
+    windows = []
+    for y0 in range(start_year, date.today().year + 1, 10):
+        windows.append((y0, min(y0 + 9, date.today().year)))
     label = hashlib.md5(",".join(sorted(ids)).encode()).hexdigest()[:10]
     points: dict[str, dict[pd.Timestamp, float]] = {sid: {} for sid in ids}
     for y0, y1 in windows:
@@ -196,6 +251,8 @@ def fetch_bls(ids: list[str]) -> dict[str, pd.Series]:
             r.raise_for_status()
             payload = r.json()
             if payload.get("status") != "REQUEST_SUCCEEDED":
+                if any("daily threshold" in message.lower() for message in payload.get("message", [])):
+                    return fetch_bls_bulk(ids, start_year)
                 raise RuntimeError(f"BLS request failed: {payload.get('message')}")
             cache.write_text(json.dumps(payload))
         for series in payload["Results"]["series"]:
@@ -279,19 +336,23 @@ def to_monthly(spec: Spec, raw: pd.Series, idx: pd.DatetimeIndex) -> tuple[pd.Se
     return filled, notes
 
 
-def build_monthly() -> tuple[pd.DataFrame, dict[str, dict[str, list]], dict[str, tuple]]:
+def load_raw_series() -> dict[str, pd.Series]:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    bls_cpi = [s.sid for s in SPECS if s.source == "bls" and not s.sid.startswith("APU")]
-    bls_apu = [s.sid for s in SPECS if s.source == "bls" and s.sid.startswith("APU")]
+    bls_ids = list(dict.fromkeys(s.sid for s in SPECS if s.source == "bls"))
     raw: dict[str, pd.Series] = {}
-    raw.update(fetch_bls(bls_cpi))
-    raw.update(fetch_bls(bls_apu))
+    raw.update(fetch_bls(bls_ids))
     for s in SPECS:
         if s.source == "fred":
             raw[s.sid] = fetch_fred(s.sid)
     raw["bigmac"] = fetch_big_mac()
     raw["afbf"] = pd.Series({pd.Timestamp(y, 11, 1): v for y, v in AFBF_THANKSGIVING.items()})
     raw["stamp"] = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    return raw
+
+
+def build_monthly(raw: dict[str, pd.Series] | None = None) -> tuple[pd.DataFrame, dict[str, dict[str, list]], dict[str, tuple]]:
+    """Build the January 1995-based dataset used by the spreadsheet."""
+    raw = raw or load_raw_series()
 
     cpi = raw["CUUR0000SA0"]
     end = cpi[cpi.index >= BASE].index.max()
@@ -326,6 +387,42 @@ def build_monthly() -> tuple[pd.DataFrame, dict[str, dict[str, list]], dict[str,
     return df, notes, coverage
 
 
+def build_web_history(
+    raw: dict[str, pd.Series] | None = None,
+) -> tuple[pd.DataFrame, dict[str, dict[str, list]], dict[str, tuple]]:
+    """Build full reliable history for the PWA without forcing late series backward."""
+    raw = raw or load_raw_series()
+    cpi = raw["CUUR0000SA0"].dropna()
+    start = cpi.index.min().to_period("M").to_timestamp()
+    end = cpi.index.max().to_period("M").to_timestamp()
+    idx = pd.date_range(start, end, freq="MS")
+
+    monthly: dict[str, pd.Series] = {}
+    notes: dict[str, dict[str, list]] = {}
+    coverage: dict[str, tuple] = {}
+    for spec in SPECS:
+        series_raw = raw[spec.sid] if spec.source in ("bls", "fred") else raw[spec.source]
+        in_window = series_raw[(series_raw.index >= start - pd.DateOffset(months=3)) & (series_raw.index <= end)]
+        coverage[spec.key] = (
+            (in_window.index.min(), in_window.index.max()) if len(in_window) else (start, end)
+        )
+        monthly[spec.key], notes[spec.key] = to_monthly(spec, series_raw, idx)
+        notes[spec.key]["spliced"] = []
+
+    for spec in SPECS:
+        if not spec.splice_from:
+            continue
+        series, proxy = monthly[spec.key], monthly[spec.splice_from]
+        first = series.first_valid_index()
+        if first is None:
+            continue
+        missing = series.index[(series.index < first) & proxy.notna()]
+        series.loc[missing] = series[first] * proxy.loc[missing] / proxy[first]
+        notes[spec.key]["spliced"] = list(missing)
+
+    return pd.DataFrame(monthly, index=idx), notes, coverage
+
+
 def compute_coefficients(df: pd.DataFrame) -> pd.DataFrame:
     """Python mirror of the workbook formulas, used for previews and verification."""
     coef = pd.DataFrame(index=df.index)
@@ -344,6 +441,24 @@ def compute_coefficients(df: pd.DataFrame) -> pd.DataFrame:
         coef[name] = np.exp(np.log(coef[w.index]).mul(w, axis=1).sum(axis=1) / w.sum())
     coef["real_wage"] = coef["wages"] / coef["cpi"]
     return coef
+
+
+def compute_web_levels(df: pd.DataFrame) -> pd.DataFrame:
+    """Add strict composite levels; ratios of these levels produce rebased coefficients."""
+    levels = df[[s.key for s in SPECS if s.group != "splice"]].copy()
+    components = [s for s in SPECS if s.group == "component"]
+    for name, attr in (("composite_cpi", "cpi_weight"), ("composite_lived", "lived_weight")):
+        weights = pd.Series({s.key: getattr(s, attr) for s in components}, dtype=float)
+        active = weights[weights > 0]
+        component_levels = levels[active.index]
+        complete = component_levels.notna().all(axis=1)
+        composite = pd.Series(np.nan, index=levels.index, dtype=float)
+        composite.loc[complete] = np.exp(
+            np.log(component_levels.loc[complete]).mul(active, axis=1).sum(axis=1) / active.sum()
+        )
+        levels[name] = composite
+    levels["real_wage"] = levels["wages"] / levels["cpi"]
+    return levels
 
 
 # ---------------------------------------------------------------- workbook
@@ -399,8 +514,9 @@ def source_name(spec: Spec) -> str:
             "afbf": "American Farm Bureau Federation"}[spec.source]
 
 
-def export_web_data(df: pd.DataFrame, coef: pd.DataFrame, notes: dict) -> None:
-    """Write the compact, public data contract consumed by the static PWA."""
+def export_web_data(df: pd.DataFrame, notes: dict) -> None:
+    """Write raw monthly levels so the PWA can rebase to any supported anchor."""
+    levels = compute_web_levels(df)
     web_series = []
     for spec in SPECS:
         if spec.group == "splice":
@@ -423,33 +539,35 @@ def export_web_data(df: pd.DataFrame, coef: pd.DataFrame, notes: dict) -> None:
         {
             "key": "composite_cpi", "label": "CPI-style basket", "group": "composite",
             "source": "Calculated from component series", "seriesId": "", "url": "",
-            "units": "Coefficient", "frequency": "Monthly",
+            "units": "Composite level", "frequency": "Monthly",
             "note": "Weighted geometric mean using BLS December 2025 spending shares.",
             "cpiWeight": None, "livedWeight": None,
         },
         {
             "key": "composite_lived", "label": "Lived-experience basket", "group": "composite",
             "source": "Calculated from component series", "seriesId": "", "url": "",
-            "units": "Coefficient", "frequency": "Monthly",
+            "units": "Composite level", "frequency": "Monthly",
             "note": "CPI-style basket with actual Case-Shiller home prices replacing owners' equivalent rent.",
             "cpiWeight": None, "livedWeight": None,
         },
         {
             "key": "real_wage", "label": "Real wage (wages / CPI-U)", "group": "context",
             "source": "Calculated from AHETPI and CPI-U", "seriesId": "", "url": "",
-            "units": "Coefficient", "frequency": "Monthly", "note": "",
+            "units": "Ratio level", "frequency": "Monthly", "note": "",
             "cpiWeight": None, "livedWeight": None,
         },
     ])
 
-    coefficient_keys = [s["key"] for s in web_series]
+    level_keys = [s["key"] for s in web_series]
     payload = {
         "meta": {
             "baseMonth": BASE.strftime("%Y-%m"),
             "birthDate": "1995-01-20",
+            "defaultAnchorDate": "1995-01-20",
+            "firstMonth": df.index[0].strftime("%Y-%m"),
             "retrieved": RETRIEVED,
             "latestMonth": df.index[-1].strftime("%Y-%m"),
-            "method": "All coefficients are normalized to January 1995 = 1.00.",
+            "method": "The PWA stores source levels and rebases each available series to the user-selected anchor month.",
             "notes": {
                 spec.key: {
                     "interpolated": len(notes[spec.key]["interpolated"]),
@@ -462,9 +580,9 @@ def export_web_data(df: pd.DataFrame, coef: pd.DataFrame, notes: dict) -> None:
         },
         "series": web_series,
         "months": [month.strftime("%Y-%m") for month in df.index],
-        "coefficients": {
-            key: [None if pd.isna(value) else round(float(value), 8) for value in coef[key]]
-            for key in coefficient_keys
+        "levels": {
+            key: [None if pd.isna(value) else round(float(value), 8) for value in levels[key]]
+            for key in level_keys
         },
     }
     WEB_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -846,9 +964,11 @@ def save_previews(coef: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    df, notes, coverage = build_monthly()
+    raw = load_raw_series()
+    df, notes, coverage = build_monthly(raw)
+    web_df, web_notes, _ = build_web_history(raw)
     coef = compute_coefficients(df)
-    export_web_data(df, coef, notes)
+    export_web_data(web_df, web_notes)
     build_workbook(df, notes, coverage)
     save_previews(coef)
     print(f"Months: {df.index[0]:%b %Y} - {df.index[-1]:%b %Y} ({len(df)})")
@@ -862,7 +982,7 @@ def main() -> None:
             print(f"  notes {spec.key}: interp={len(nt['interpolated'])} carried={len(nt['carried_forward'])} "
                   f"spliced={month_ranges(nt['spliced'])}")
     print(f"Saved {WORKBOOK_PATH}")
-    print(f"Saved {WEB_DATA_PATH}")
+    print(f"Saved {WEB_DATA_PATH} ({web_df.index[0]:%b %Y} - {web_df.index[-1]:%b %Y})")
 
 
 if __name__ == "__main__":
